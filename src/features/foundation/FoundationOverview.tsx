@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Building2, Database, Layers, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Building2, Database, Layers, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/src/components/ui/Button';
 import { Surface } from '@/src/components/ui/Surface';
 import { useTenant } from '@/src/components/shell/TenantProvider';
@@ -36,7 +36,11 @@ export function FoundationOverview({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => onNavigate('setup')}>
+            <SlidersHorizontal className="h-4 w-4 text-[#16B8A6]" />
+            Setup Wizard
+          </Button>
           <Button variant="outline" size="sm" onClick={() => onNavigate('schema')}>
             <Database className="h-4 w-4 text-[#4169F5]" />
             Inspect Schema

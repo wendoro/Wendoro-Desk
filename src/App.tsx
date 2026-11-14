@@ -11,6 +11,7 @@ import { IdentityTenancyView } from '@/src/features/foundation/IdentityTenancyVi
 import { MilestonePlanView } from '@/src/features/foundation/MilestonePlanView';
 import { ModuleRoadmapView } from '@/src/features/foundation/ModuleRoadmapView';
 import { SchemaExplorerView } from '@/src/features/foundation/SchemaExplorerView';
+import { SetupWizard } from '@/src/features/setup/SetupWizard';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,26 +24,40 @@ const queryClient = new QueryClient({
 
 function WorkspaceRouter() {
   const [activeRoute, setActiveRoute] = useState<string>('overview');
-  const { activeCompany } = useTenant();
+  const { activeCompany, setupCompleted, skipSetupWizard } = useTenant();
   const { user, authReady, syncWorkspacePresence } = useFirebase();
 
   useEffect(() => {
-    if (authReady && user) {
+    if (setupCompleted && authReady && user) {
       void syncWorkspacePresence({
         companyId: activeCompany.companyId,
         companyName: activeCompany.companyName,
         activeRoute,
       });
     }
-  }, [authReady, user, activeCompany.companyId, activeCompany.companyName, activeRoute, syncWorkspacePresence]);
+  }, [
+    setupCompleted,
+    authReady,
+    user,
+    activeCompany.companyId,
+    activeCompany.companyName,
+    activeRoute,
+    syncWorkspacePresence,
+  ]);
 
   const breadcrumb = useMemo(() => {
     if (activeRoute.startsWith('module:')) {
       const slug = activeRoute.replace('module:', '');
       const mod = WENDORO_MODULES.find((m) => m.slug === slug);
-      return ['WENDORO', mod?.layer === 'industry' ? 'Industry' : 'Business Apps', mod?.name ?? slug];
+      return [
+        'WENDORO',
+        mod?.layer === 'industry' ? 'Industry' : 'Business Apps',
+        mod?.name ?? slug,
+      ];
     }
     switch (activeRoute) {
+      case 'setup':
+        return ['WENDORO', 'Core Platform', 'Setup Wizard'];
       case 'schema':
         return ['WENDORO', 'Core Platform', 'Architecture & Schema'];
       case 'identity':
@@ -57,6 +72,18 @@ function WorkspaceRouter() {
     }
   }, [activeRoute]);
 
+  if (!setupCompleted) {
+    return (
+      <SetupWizard
+        onComplete={() => setActiveRoute('overview')}
+        onSkip={() => {
+          skipSetupWizard();
+          setActiveRoute('overview');
+        }}
+      />
+    );
+  }
+
   const renderContent = () => {
     if (activeRoute.startsWith('module:')) {
       const slug = activeRoute.replace('module:', '');
@@ -69,6 +96,14 @@ function WorkspaceRouter() {
     }
 
     switch (activeRoute) {
+      case 'setup':
+        return (
+          <SetupWizard
+            isModalOrEmbedded
+            onComplete={() => setActiveRoute('overview')}
+            onSkip={() => setActiveRoute('overview')}
+          />
+        );
       case 'schema':
         return <SchemaExplorerView />;
       case 'identity':

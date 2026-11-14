@@ -3,6 +3,7 @@ import {
   CompanyMembership,
   SessionPrincipal,
   SessionPrincipalSchema,
+  SubscriptionTier,
   hasPermission,
 } from '@/src/core/contracts/tenancy';
 
@@ -14,6 +15,33 @@ export interface NotificationItem {
   timestamp: string;
   isRead: boolean;
 }
+
+export interface SetupWizardInput {
+  tenantName: string;
+  tenantSlug: string;
+  companyName: string;
+  legalName: string;
+  companyCode: string;
+  industryClassification: string;
+  countryCode: string;
+  baseCurrency: string;
+  timezone: string;
+  taxRegistrationNumber?: string;
+  branchCode: string;
+  branchName: string;
+  branchCity: string;
+  enabledModules: string[];
+  subscriptionTier: SubscriptionTier;
+  licenseKey?: string;
+}
+
+interface PersistedSetupState {
+  setupCompleted: boolean;
+  principal: SessionPrincipal;
+  licenseKey?: string;
+}
+
+const SETUP_STORAGE_KEY = 'wendoro.setup.v1';
 
 /**
  * Phase 0 Reference Principal validating SessionPrincipalSchema.
@@ -198,13 +226,44 @@ const INITIAL_NOTIFICATIONS: NotificationItem[] = [
   },
 ];
 
+function createUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return '66666666-6666-4666-8666-666666666601';
+}
+
+function loadPersistedState(): PersistedSetupState {
+  if (typeof window === 'undefined') {
+    return { setupCompleted: false, principal: INITIAL_PRINCIPAL };
+  }
+  try {
+    const raw = window.localStorage.getItem(SETUP_STORAGE_KEY);
+    if (!raw) return { setupCompleted: false, principal: INITIAL_PRINCIPAL };
+    const parsed = JSON.parse(raw) as PersistedSetupState;
+    const validPrincipal = SessionPrincipalSchema.parse(parsed.principal);
+    return {
+      setupCompleted: Boolean(parsed.setupCompleted),
+      principal: validPrincipal,
+      licenseKey: parsed.licenseKey,
+    };
+  } catch {
+    return { setupCompleted: false, principal: INITIAL_PRINCIPAL };
+  }
+}
+
 interface TenantContextValue {
   principal: SessionPrincipal;
   activeCompany: CompanyMembership;
   activeBranchId: string | null;
+  setupCompleted: boolean;
+  licenseKey?: string;
   switchCompany: (companyId: string) => void;
   switchBranch: (branchId: string | null) => void;
   toggleCompanyModule: (moduleSlug: string) => void;
+  completeSetupWizard: (input: SetupWizardInput) => CompanyMembership;
+  skipSetupWizard: () => void;
+  resetSetupWizard: () => void;
   can: (permission: string) => boolean;
   notifications: NotificationItem[];
   markAllNotificationsRead: () => void;
@@ -213,10 +272,31 @@ interface TenantContextValue {
 const TenantContext = createContext<TenantContextValue | null>(null);
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {
-  const [principal, setPrincipal] = useState<SessionPrincipal>(INITIAL_PRINCIPAL);
+  const initialState = useMemo(() => loadPersistedState(), []);
+  const [principal, setPrincipal] = useState<SessionPrincipal>(initialState.principal);
+  const [setupCompleted, setSetupCompleted] = useState<boolean>(
+    initialState.setupCompleted,
+  );
+  const [licenseKey, setLicenseKey] = useState<string | undefined>(
+    initialState.licenseKey,
+  );
   const [notifications, setNotifications] = useState<NotificationItem[]>(
     INITIAL_NOTIFICATIONS,
   );
+
+  const persist = (
+    nextPrincipal: SessionPrincipal,
+    nextCompleted: boolean,
+    nextLicenseKey?: string,
+  ) => {
+    if (typeof window === 'undefined') return;
+    const payload: PersistedSetupState = {
+      setupCompleted: nextCompleted,
+      principal: nextPrincipal,
+      licenseKey: nextLicenseKey,
+    };
+    window.localStorage.setItem(SETUP_STORAGE_KEY, JSON.stringify(payload));
+  };
 
   const activeCompany = useMemo(() => {
     return (
@@ -228,36 +308,128 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const switchCompany = (companyId: string) => {
     const target = principal.memberships.find((m) => m.companyId === companyId);
     if (!target) return;
-    setPrincipal((prev) => ({
-      ...prev,
-      activeTenantId: target.tenantId,
-      activeCompanyId: target.companyId,
-      activeBranchId: target.defaultBranchId ?? null,
-    }));
+    setPrincipal((prev) => {
+      const next = {
+        ...prev,
+        activeTenantId: target.tenantId,
+        activeCompanyId: target.companyId,
+        activeBranchId: target.defaultBranchId ?? null,
+      };
+      persist(next, setupCompleted, licenseKey);
+      return next;
+    });
   };
 
   const switchBranch = (branchId: string | null) => {
-    setPrincipal((prev) => ({
-      ...prev,
-      activeBranchId: branchId,
-    }));
+    setPrincipal((prev) => {
+      const next = { ...prev, activeBranchId: branchId };
+      persist(next, setupCompleted, licenseKey);
+      return next;
+    });
   };
 
   const toggleCompanyModule = (moduleSlug: string) => {
     if (moduleSlug === 'core_identity' || moduleSlug === 'core_rbac') return;
-    setPrincipal((prev) => ({
+    setPrincipal((prev) => {
+      const next = {
+        ...prev,
+        memberships: prev.memberships.map((m) => {
+          if (m.companyId !== prev.activeCompanyId) return m;
+          const exists = m.enabledModules.includes(moduleSlug);
+          return {
+            ...m,
+            enabledModules: exists
+              ? m.enabledModules.filter((slug) => slug !== moduleSlug)
+              : [...m.enabledModules, moduleSlug],
+          };
+        }),
+      };
+      persist(next, setupCompleted, licenseKey);
+      return next;
+    });
+  };
+
+  const completeSetupWizard = (input: SetupWizardInput): CompanyMembership => {
+    const tenantId = createUuid();
+    const companyId = createUuid();
+    const branchId = createUuid();
+    const membershipId = createUuid();
+
+    const dedupedModules = Array.from(
+      new Set(['core_identity', 'core_rbac', ...input.enabledModules]),
+    );
+
+    const newMembership: CompanyMembership = {
+      membershipId,
+      tenantId,
+      companyId,
+      companyCode: input.companyCode.toUpperCase(),
+      companyName: input.companyName.trim(),
+      legalName: input.legalName.trim() || input.companyName.trim(),
+      industryClassification: input.industryClassification,
+      baseCurrency: input.baseCurrency.toUpperCase().slice(0, 3),
+      countryCode: input.countryCode.toUpperCase().slice(0, 2),
+      timezone: input.timezone,
+      roleName: 'Organization Owner',
+      roleSlug: 'owner',
+      roleScope: 'tenant',
+      permissions: ['*'],
+      enabledModules: dedupedModules,
+      defaultBranchId: branchId,
+      branches: [
+        {
+          id: branchId,
+          code: input.branchCode.toUpperCase(),
+          name: input.branchName.trim(),
+          isHeadquarters: true,
+          city: input.branchCity.trim() || null,
+          countryCode: input.countryCode.toUpperCase().slice(0, 2),
+        },
+      ],
+    };
+
+    const nextPrincipal: SessionPrincipal = SessionPrincipalSchema.parse({
+      ...principal,
+      activeTenantId: tenantId,
+      activeCompanyId: companyId,
+      activeBranchId: branchId,
+      subscriptionTier: input.subscriptionTier,
+      memberships: [newMembership, ...principal.memberships],
+    });
+
+    const trimmedKey = input.licenseKey?.trim() || undefined;
+    setPrincipal(nextPrincipal);
+    setSetupCompleted(true);
+    setLicenseKey(trimmedKey);
+    persist(nextPrincipal, true, trimmedKey);
+
+    setNotifications((prev) => [
+      {
+        id: `notif-setup-${companyId}`,
+        category: 'governance',
+        title: `${newMembership.companyName} Provisioned`,
+        body: `Setup wizard configured ${dedupedModules.length} modules under ${input.subscriptionTier} licensing.`,
+        timestamp: 'Just now',
+        isRead: false,
+      },
       ...prev,
-      memberships: prev.memberships.map((m) => {
-        if (m.companyId !== prev.activeCompanyId) return m;
-        const exists = m.enabledModules.includes(moduleSlug);
-        return {
-          ...m,
-          enabledModules: exists
-            ? m.enabledModules.filter((slug) => slug !== moduleSlug)
-            : [...m.enabledModules, moduleSlug],
-        };
-      }),
-    }));
+    ]);
+
+    return newMembership;
+  };
+
+  const skipSetupWizard = () => {
+    setSetupCompleted(true);
+    persist(principal, true, licenseKey);
+  };
+
+  const resetSetupWizard = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(SETUP_STORAGE_KEY);
+    }
+    setPrincipal(INITIAL_PRINCIPAL);
+    setLicenseKey(undefined);
+    setSetupCompleted(false);
   };
 
   const can = (permission: string) => hasPermission(activeCompany, permission);
@@ -272,9 +444,14 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         principal,
         activeCompany,
         activeBranchId: principal.activeBranchId,
+        setupCompleted,
+        licenseKey,
         switchCompany,
         switchBranch,
         toggleCompanyModule,
+        completeSetupWizard,
+        skipSetupWizard,
+        resetSetupWizard,
         can,
         notifications,
         markAllNotificationsRead,

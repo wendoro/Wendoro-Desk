@@ -45,6 +45,14 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
         action: () => onNavigate('overview'),
       },
       {
+        id: 'nav-setup',
+        group: 'Foundation Workspace',
+        label: 'Company Setup Wizard',
+        detail: 'Onboard a new company, regional GST/currency preset & license tier',
+        icon: <Layers className="h-4 w-4 text-[#16B8A6]" />,
+        action: () => onNavigate('setup'),
+      },
+      {
         id: 'nav-schema',
         group: 'Foundation Workspace',
         label: 'Architecture & Database Schema',

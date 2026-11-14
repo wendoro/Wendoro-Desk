@@ -16,6 +16,7 @@ import {
   Receipt,
   ShieldCheck,
   ShoppingBag,
+  SlidersHorizontal,
   Truck,
   Users,
   Wallet,
@@ -65,6 +66,7 @@ export function Sidebar({
 
   const foundationItems = [
     { id: 'overview', label: 'Executive Shell', icon: LayoutDashboard },
+    { id: 'setup', label: 'Setup Wizard', icon: SlidersHorizontal },
     { id: 'schema', label: 'Architecture & Schema', icon: Database },
     { id: 'identity', label: 'Identity & Multi-Tenancy', icon: ShieldCheck },
     { id: 'design', label: 'Design System', icon: Palette },
