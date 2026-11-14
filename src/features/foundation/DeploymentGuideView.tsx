@@ -40,6 +40,11 @@ interface HealthProbeResult {
   checkedAt: string;
   mode: 'node-express' | 'static-edge';
   message: string;
+  envFlags?: {
+    databaseConfigured: boolean;
+    authSecretConfigured: boolean;
+    aiGatewayConfigured: boolean;
+  };
 }
 
 export function DeploymentGuideView({
@@ -71,14 +76,34 @@ export function DeploymentGuideView({
   const runHealthProbe = async () => {
     setProbeLoading(true);
     try {
-      const response = await fetch('/api/health', { cache: 'no-store' });
-      const contentType = response.headers.get('content-type') ?? '';
-      if (response.ok && contentType.includes('application/json')) {
-        const data = (await response.json()) as { status?: string; runtime?: string };
+      const [healthRes, statusRes] = await Promise.all([
+        fetch('/api/health', { cache: 'no-store' }),
+        fetch('/api/setup/status', { cache: 'no-store' }).catch(() => null),
+      ]);
+      const contentType = healthRes.headers.get('content-type') ?? '';
+      if (healthRes.ok && contentType.includes('application/json')) {
+        const data = (await healthRes.json()) as { status?: string; runtime?: string };
+        let envFlags: HealthProbeResult['envFlags'];
+        if (statusRes && statusRes.ok) {
+          const statusType = statusRes.headers.get('content-type') ?? '';
+          if (statusType.includes('application/json')) {
+            const s = (await statusRes.json()) as {
+              databaseConfigured?: boolean;
+              authSecretConfigured?: boolean;
+              aiGatewayConfigured?: boolean;
+            };
+            envFlags = {
+              databaseConfigured: Boolean(s.databaseConfigured),
+              authSecretConfigured: Boolean(s.authSecretConfigured),
+              aiGatewayConfigured: Boolean(s.aiGatewayConfigured),
+            };
+          }
+        }
         setProbeResult({
           checkedAt: new Date().toLocaleTimeString(),
           mode: 'node-express',
           message: `200 OK · ${data.runtime ?? 'node-express'} (${data.status ?? 'ok'})`,
+          envFlags,
         });
       } else {
         setProbeResult({
@@ -405,7 +430,7 @@ export function DeploymentGuideView({
             </div>
 
             {probeResult && (
-              <div className="rounded-lg p-3 bg-[#F6F8FC] dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] text-xs space-y-1">
+              <div className="rounded-lg p-3 bg-[#F6F8FC] dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] text-xs space-y-2">
                 <div className="flex items-center justify-between text-[11px] text-[#718096] dark:text-slate-400">
                   <span>Health Probe</span>
                   <span className="font-mono tabular-nums">{probeResult.checkedAt}</span>
@@ -413,6 +438,28 @@ export function DeploymentGuideView({
                 <div className="font-medium text-[#182238] dark:text-slate-100">
                   {probeResult.message}
                 </div>
+                {probeResult.envFlags && (
+                  <div className="pt-2 border-t border-slate-200 dark:border-[#223257] space-y-1 text-[11px]">
+                    <div className="flex justify-between">
+                      <span className="text-[#718096] dark:text-slate-400">PostgreSQL (DATABASE_URL)</span>
+                      <span className={probeResult.envFlags.databaseConfigured ? 'text-[#16B8A6] font-medium' : 'text-[#718096]'}>
+                        {probeResult.envFlags.databaseConfigured ? 'Configured' : 'Not Set'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#718096] dark:text-slate-400">Auth Secret</span>
+                      <span className={probeResult.envFlags.authSecretConfigured ? 'text-[#16B8A6] font-medium' : 'text-[#718096]'}>
+                        {probeResult.envFlags.authSecretConfigured ? 'Configured' : 'Not Set'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#718096] dark:text-slate-400">AI Gateway</span>
+                      <span className={probeResult.envFlags.aiGatewayConfigured ? 'text-[#16B8A6] font-medium' : 'text-[#718096]'}>
+                        {probeResult.envFlags.aiGatewayConfigured ? 'Configured' : 'Not Set'}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </Surface>

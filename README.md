@@ -69,8 +69,10 @@ All entitlement quotas (users, companies, branches, storage, AI tokens, API call
 
 ## Deploy on Cloudflare
 
-### Option 1: One-Click Deploy
-Click the **Deploy to Cloudflare** button at the top of this README. Cloudflare will clone [`https://github.com/wendoro/Wendoro-Desk`](https://github.com/wendoro/Wendoro-Desk), run `npm ci`, `npm run build`, and publish `dist/` using [`wrangler.jsonc`](./wrangler.jsonc).
+### Option 1: One-Click Deploy (No Keys Required)
+Click the **Deploy to Cloudflare** button at the top of this README. Cloudflare will clone [`https://github.com/wendoro/Wendoro-Desk`](https://github.com/wendoro/Wendoro-Desk), run `npm ci`, `npm run build`, and publish `dist/` using [`wrangler.jsonc`](./wrangler.jsonc) — **zero API keys or database secrets are required to deploy**.
+
+> **Add keys only when needed:** Once deployed, you can add your own `GEMINI_API_KEY`, `DATABASE_URL`, `BETTER_AUTH_SECRET`, or `VITE_FIREBASE_*` values anytime under **Cloudflare Dashboard -> Workers & Pages -> Settings -> Variables and Secrets** (or `npx wrangler secret put <KEY>`).
 
 ### Option 2: Automated Deployment (Every Push to `main`)
 

@@ -22,6 +22,21 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// Safe post-deploy setup readiness check (returns booleans only, never secret values)
+app.get('/api/setup/status', (_req, res) => {
+  const hasValue = (val: string | undefined, placeholder: string) =>
+    Boolean(val && val.trim().length > 0 && !val.includes(placeholder));
+
+  res.status(200).json({
+    runtime: 'node-express',
+    databaseConfigured: hasValue(process.env.DATABASE_URL, 'password@host'),
+    authSecretConfigured: hasValue(process.env.BETTER_AUTH_SECRET, 'REPLACE_WITH'),
+    aiGatewayConfigured: hasValue(process.env.GEMINI_API_KEY, 'MY_GEMINI_API_KEY'),
+    appUrlConfigured: hasValue(process.env.APP_URL, 'MY_APP_URL'),
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Serve static Vite build output
 app.use(express.static(distDir, { index: false }));
 

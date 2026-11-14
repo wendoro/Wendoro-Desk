@@ -45,12 +45,12 @@ export const WENDORO_DEPLOYMENT_TARGETS: DeploymentTarget[] = [
     scalingProfile: 'Zero cold-start global edge across 300+ PoPs with Neon PostgreSQL pooling',
     configFiles: ['wrangler.jsonc', '.npmrc', 'package-lock.json', '.github/workflows/deploy-cloudflare.yml'],
     summary:
-      'Recommended default cloud deployment. Uses npm ci on Node 24 with wrangler.jsonc to publish SPA assets globally and attach Hyperdrive, R2, and Queues bindings as Phase 1 APIs come online.',
+      'Recommended default cloud deployment. Zero API keys or secrets are required to deploy — click Deploy to Cloudflare, launch the Setup Wizard immediately, and add Hyperdrive, Better Auth, AI, or Firebase keys later only when needed.',
     highlights: [
-      'One-click Deploy to Cloudflare button directly from GitHub',
+      'Zero-key one-click Deploy to Cloudflare button directly from GitHub',
       'Automated CI/CD via GitHub Actions on every push to main',
       'SPA fallback handled natively via assets.not_found_handling',
-      'Ready for Hyperdrive -> Neon PostgreSQL RLS connection pooling',
+      'Add Hyperdrive, R2, AI, or Firebase secrets later when enabling modules',
     ],
     steps: [
       {
@@ -59,14 +59,15 @@ export const WENDORO_DEPLOYMENT_TARGETS: DeploymentTarget[] = [
         note: 'Uses .npmrc (legacy-peer-deps=true) and package-lock.json.',
       },
       {
-        title: '2. Build & deploy to Cloudflare Workers',
+        title: '2. Build & deploy to Cloudflare Workers (no keys needed)',
         command: 'npm run deploy:cloudflare',
         note: 'Runs vite build then npx wrangler deploy using wrangler.jsonc.',
       },
       {
-        title: '3. Provision Phase 1+ server secrets (never commit these)',
+        title: '3. Add optional server secrets later when required',
         command:
           'npx wrangler secret put GEMINI_API_KEY\nnpx wrangler secret put BETTER_AUTH_SECRET',
+        note: 'Or configure in Cloudflare Dashboard -> Workers & Pages -> Settings -> Variables and Secrets.',
       },
     ],
     envVars: [
@@ -74,22 +75,22 @@ export const WENDORO_DEPLOYMENT_TARGETS: DeploymentTarget[] = [
         name: 'GEMINI_API_KEY',
         scope: 'server',
         required: false,
-        description: 'Server-side AI Gateway key (Workers Secret)',
-        example: 'Set via npx wrangler secret put GEMINI_API_KEY',
+        description: 'Optional server-side AI Gateway key (add only when enabling AI features)',
+        example: 'Set later via npx wrangler secret put GEMINI_API_KEY',
       },
       {
         name: 'BETTER_AUTH_SECRET',
         scope: 'server',
-        required: true,
-        description: '32+ byte session signing secret for Better Auth',
-        example: 'Set via npx wrangler secret put BETTER_AUTH_SECRET',
+        required: false,
+        description: 'Optional 32+ byte session signing secret (required only when enabling Phase 1 DB auth)',
+        example: 'Set later via npx wrangler secret put BETTER_AUTH_SECRET',
       },
       {
         name: 'VITE_FIREBASE_API_KEY',
         scope: 'client',
         required: false,
-        description: 'Optional public Firebase Web SDK config if not using firebase-applet-config.json',
-        example: 'Build-time env var in Cloudflare Workers Builds',
+        description: 'Optional public Firebase Web SDK config (required only for Google Sign-In & Firestore)',
+        example: 'Add in Cloudflare Workers Builds Variables when connecting Firebase',
       },
     ],
   },

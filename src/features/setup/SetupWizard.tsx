@@ -7,9 +7,13 @@ import {
   CheckCircle2,
   Cloud,
   Copy,
+  Database,
+  Download,
   KeyRound,
   Layers,
   Moon,
+  RefreshCw,
+  Server,
   ShieldCheck,
   Sun,
 } from 'lucide-react';
@@ -148,8 +152,10 @@ export function SetupWizard({
   const {
     user,
     connectionState,
+    isConfigured,
     projectId,
     firestoreDatabaseId,
+    authError,
     signInWithGoogle,
     syncWorkspacePresence,
   } = useFirebase();
@@ -178,6 +184,25 @@ export function SetupWizard({
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
+  const [infraMode, setInfraMode] = useState<'standalone' | 'cloudflare-neon' | 'docker-postgres'>(
+    'cloudflare-neon',
+  );
+  const [dbProvider, setDbProvider] = useState<'neon' | 'supabase' | 'postgres-self'>('neon');
+  const [serverProbe, setServerProbe] = useState<{
+    checking: boolean;
+    checkedAt: string | null;
+    mode: 'node-express' | 'static-edge' | null;
+    databaseConfigured: boolean;
+    authSecretConfigured: boolean;
+    aiGatewayConfigured: boolean;
+  }>({
+    checking: false,
+    checkedAt: null,
+    mode: null,
+    databaseConfigured: false,
+    authSecretConfigured: false,
+    aiGatewayConfigured: false,
+  });
 
   const region = useMemo(
     () => REGION_PRESETS.find((r) => r.id === regionId) ?? REGION_PRESETS[0],
@@ -292,8 +317,97 @@ export function SetupWizard({
     }
   };
 
+  const checkServerStatus = async () => {
+    setServerProbe((prev) => ({ ...prev, checking: true }));
+    try {
+      const res = await fetch('/api/setup/status', { cache: 'no-store' });
+      const contentType = res.headers.get('content-type') ?? '';
+      if (res.ok && contentType.includes('application/json')) {
+        const data = (await res.json()) as {
+          databaseConfigured?: boolean;
+          authSecretConfigured?: boolean;
+          aiGatewayConfigured?: boolean;
+        };
+        setServerProbe({
+          checking: false,
+          checkedAt: new Date().toLocaleTimeString(),
+          mode: 'node-express',
+          databaseConfigured: Boolean(data.databaseConfigured),
+          authSecretConfigured: Boolean(data.authSecretConfigured),
+          aiGatewayConfigured: Boolean(data.aiGatewayConfigured),
+        });
+      } else {
+        setServerProbe({
+          checking: false,
+          checkedAt: new Date().toLocaleTimeString(),
+          mode: 'static-edge',
+          databaseConfigured: false,
+          authSecretConfigured: false,
+          aiGatewayConfigured: false,
+        });
+      }
+    } catch {
+      setServerProbe({
+        checking: false,
+        checkedAt: new Date().toLocaleTimeString(),
+        mode: 'static-edge',
+        databaseConfigured: false,
+        authSecretConfigured: false,
+        aiGatewayConfigured: false,
+      });
+    }
+  };
+
+  const downloadTemplateFile = (filename: string, content: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const safeDbSlug =
+    companyCode
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/(^_|_$)/g, '') || 'wendoro';
+
+  const envTemplateContent = `# WENDORO ERP Environment Configuration (${companyName})
+# Replace placeholder values with your own credentials before starting.
+DATABASE_URL="postgresql://wendoro:<YOUR_PASSWORD>@${
+    dbProvider === 'neon'
+      ? 'ep-your-endpoint.neon.tech'
+      : dbProvider === 'supabase'
+        ? 'db.your-project.supabase.co'
+        : 'localhost'
+  }:5432/${safeDbSlug}?sslmode=require"
+BETTER_AUTH_SECRET="<RUN_OPENSSL_RAND_HEX_32>"
+GEMINI_API_KEY="<OPTIONAL_GEMINI_API_KEY>"
+APP_URL="https://erp.example.com"
+`;
+
+  const firebaseTemplateContent = JSON.stringify(
+    {
+      projectId: 'YOUR_FIREBASE_PROJECT_ID',
+      appId: 'YOUR_FIREBASE_WEB_APP_ID',
+      apiKey: 'YOUR_FIREBASE_WEB_API_KEY',
+      authDomain: 'YOUR_FIREBASE_PROJECT_ID.firebaseapp.com',
+      firestoreDatabaseId: '(default)',
+      storageBucket: 'YOUR_FIREBASE_PROJECT_ID.firebasestorage.app',
+      messagingSenderId: 'YOUR_FIREBASE_SENDER_ID',
+    },
+    null,
+    2,
+  );
+
   const migrationCommand = 'psql "$DATABASE_URL" -f src/db/migrations/0000_core_foundation_rls.sql';
-  const deployCommand = 'npm run deploy:cloudflare';
+  const cloudflareSecretsCommand =
+    'npx wrangler secret put DATABASE_URL && npx wrangler secret put BETTER_AUTH_SECRET && npx wrangler secret put GEMINI_API_KEY';
+  const dockerCommand = 'cp .env.example .env && docker compose up -d --build';
 
   return (
     <div
@@ -712,32 +826,256 @@ export function SetupWizard({
         {/* Step 4: Cloud & Identity */}
         {step === 4 && (
           <Surface padding="lg" className="space-y-6">
-            <div>
-              <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
-                04. Cloud, Identity & Database Readiness
-              </h2>
-              <p className="text-xs text-[#718096] dark:text-slate-400 mt-0.5">
-                Connect Firebase Google Sign-In for realtime workspace sync and review the
-                Cloudflare + PostgreSQL migration commands.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
+                  04. Connect Your Own Database & Keys (Post-Deploy)
+                </h2>
+                <p className="text-xs text-[#718096] dark:text-slate-400 mt-0.5">
+                  Because WENDORO is open-source, no vendor keys or shared databases are
+                  shipped in the repository. Run standalone now or attach your own backend
+                  after deployment.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void checkServerStatus()}
+                disabled={serverProbe.checking}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${serverProbe.checking ? 'animate-spin' : ''}`} />
+                {serverProbe.checking ? 'Checking...' : 'Check Server Readiness'}
+              </Button>
+            </div>
+
+            {/* Deployment Infrastructure Selector */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                {
+                  id: 'standalone' as const,
+                  title: 'Standalone Mode',
+                  desc: 'Start immediately in your browser with zero external database or keys.',
+                  icon: Layers,
+                },
+                {
+                  id: 'cloudflare-neon' as const,
+                  title: 'Cloudflare + PostgreSQL',
+                  desc: 'Add DATABASE_URL, Hyperdrive & secrets in Cloudflare Dashboard after deploy.',
+                  icon: Cloud,
+                },
+                {
+                  id: 'docker-postgres' as const,
+                  title: 'Docker / Self-Hosted VPS',
+                  desc: 'Boot PostgreSQL 16 + Node 24 Express server with .env on your own host.',
+                  icon: Server,
+                },
+              ].map((option) => {
+                const Icon = option.icon;
+                const active = infraMode === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setInfraMode(option.id)}
+                    aria-pressed={active}
+                    className={`p-3.5 rounded-xl border text-left transition-colors cursor-pointer ${
+                      active
+                        ? 'border-[#4169F5] ring-1 ring-[#4169F5] bg-[#4169F5]/5 dark:bg-[#4169F5]/10'
+                        : 'border-slate-200 dark:border-[#223257] bg-[#F6F8FC]/60 dark:bg-[#0E172E]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-xs font-semibold text-[#182238] dark:text-slate-100">
+                      <Icon className="h-4 w-4 text-[#4169F5]" />
+                      <span>{option.title}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-[#718096] dark:text-slate-400 leading-relaxed">
+                      {option.desc}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Left: Database & Server Secrets Binding Guide */}
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-[#223257] bg-[#F6F8FC]/70 dark:bg-[#0E172E] space-y-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[#182238] dark:text-slate-100">
+                    <Database className="h-4 w-4 text-[#8B5CF6]" />
+                    <span>PostgreSQL & Server Secrets</span>
+                  </div>
+                  <div className="inline-flex items-center gap-1 p-0.5 rounded-md bg-slate-200/70 dark:bg-[#162342]">
+                    {(['neon', 'supabase', 'postgres-self'] as const).map((prov) => (
+                      <button
+                        key={prov}
+                        type="button"
+                        onClick={() => setDbProvider(prov)}
+                        className={`px-2 py-0.5 text-[11px] font-medium rounded cursor-pointer ${
+                          dbProvider === prov
+                            ? 'bg-white dark:bg-[#101B35] text-[#182238] dark:text-slate-100'
+                            : 'text-[#718096] dark:text-slate-400'
+                        }`}
+                      >
+                        {prov === 'neon' ? 'Neon' : prov === 'supabase' ? 'Supabase' : 'Self-Hosted'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {infraMode === 'standalone' ? (
+                  <p className="text-xs text-[#718096] dark:text-slate-400 leading-relaxed">
+                    You are launching in <strong>Standalone Mode</strong>. Your company
+                    profile, modules, and evaluation workspace save cleanly in this browser
+                    with no database required. Switch to Cloudflare or Docker anytime later.
+                  </p>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#101B35] text-slate-100 font-mono text-[11px]">
+                        <span className="truncate">{migrationCommand}</span>
+                        <button
+                          type="button"
+                          onClick={() => void copyCommand('mig', migrationCommand)}
+                          className="text-slate-300 hover:text-white shrink-0 cursor-pointer"
+                          aria-label="Copy migration command"
+                        >
+                          {copiedCmd === 'mig' ? (
+                            <Check className="h-3.5 w-3.5 text-[#16B8A6]" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#101B35] text-slate-100 font-mono text-[11px]">
+                        <span className="truncate">
+                          {infraMode === 'cloudflare-neon'
+                            ? cloudflareSecretsCommand
+                            : dockerCommand}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void copyCommand(
+                              'infra',
+                              infraMode === 'cloudflare-neon'
+                                ? cloudflareSecretsCommand
+                                : dockerCommand,
+                            )
+                          }
+                          className="text-slate-300 hover:text-white shrink-0 cursor-pointer"
+                          aria-label="Copy deployment secret command"
+                        >
+                          {copiedCmd === 'infra' ? (
+                            <Check className="h-3.5 w-3.5 text-[#16B8A6]" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          downloadTemplateFile(
+                            `${safeDbSlug}.env.example`,
+                            envTemplateContent,
+                            'text/plain',
+                          )
+                        }
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download .env Template
+                      </Button>
+                      <span className="text-[11px] text-[#718096] dark:text-slate-400">
+                        Add secrets in Cloudflare Dashboard or server `.env` — never in browser UI.
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                {serverProbe.checkedAt && (
+                  <div className="pt-2.5 border-t border-slate-200 dark:border-[#223257] text-[11px] space-y-1">
+                    <div className="flex justify-between text-[#718096] dark:text-slate-400">
+                      <span>Detected Runtime ({serverProbe.checkedAt})</span>
+                      <span className="font-mono text-[#182238] dark:text-slate-200">
+                        {serverProbe.mode === 'node-express' ? 'Node Express Server' : 'Static Edge SPA'}
+                      </span>
+                    </div>
+                    {serverProbe.mode === 'node-express' && (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 pt-0.5">
+                        <span>
+                          DB:{' '}
+                          <strong className={serverProbe.databaseConfigured ? 'text-[#16B8A6]' : 'text-[#718096]'}>
+                            {serverProbe.databaseConfigured ? 'Connected' : 'Pending'}
+                          </strong>
+                        </span>
+                        <span>
+                          Auth Secret:{' '}
+                          <strong className={serverProbe.authSecretConfigured ? 'text-[#16B8A6]' : 'text-[#718096]'}>
+                            {serverProbe.authSecretConfigured ? 'Set' : 'Pending'}
+                          </strong>
+                        </span>
+                        <span>
+                          AI Key:{' '}
+                          <strong className={serverProbe.aiGatewayConfigured ? 'text-[#16B8A6]' : 'text-[#718096]'}>
+                            {serverProbe.aiGatewayConfigured ? 'Set' : 'Optional'}
+                          </strong>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Right: Firebase Auth & Firestore Realtime */}
               <div className="p-4 rounded-xl border border-slate-200 dark:border-[#223257] bg-[#F6F8FC]/70 dark:bg-[#0E172E] space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-[#182238] dark:text-slate-100">
-                    Firebase Auth & Firestore Realtime
+                    Firebase Auth & Firestore Realtime (Optional)
                   </span>
                   <span className="text-xs font-medium text-[#16B8A6] capitalize">
-                    {connectionState}
+                    {isConfigured ? connectionState : 'Standalone Mode'}
                   </span>
                 </div>
                 <div className="text-[11px] font-mono text-[#718096] dark:text-slate-400 space-y-1">
                   <div>project_id: {projectId}</div>
                   <div className="truncate">database_id: {firestoreDatabaseId}</div>
                 </div>
-                <div className="pt-1">
-                  {user ? (
+                <div className="pt-1 space-y-2.5">
+                  {!isConfigured ? (
+                    <>
+                      <p className="text-xs text-[#718096] dark:text-slate-400 leading-relaxed">
+                        No Firebase project is bundled in the public repo. When you want
+                        Google Sign-In & Firestore presence, add{' '}
+                        <code className="font-mono text-[11px] text-[#182238] dark:text-slate-200">
+                          VITE_FIREBASE_*
+                        </code>{' '}
+                        in your Cloudflare/CI build settings or use{' '}
+                        <code className="font-mono text-[11px] text-[#182238] dark:text-slate-200">
+                          firebase-applet-config.json
+                        </code>{' '}
+                        locally.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          downloadTemplateFile(
+                            'firebase-applet-config.json',
+                            firebaseTemplateContent,
+                            'application/json',
+                          )
+                        }
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download Firebase Config Template
+                      </Button>
+                    </>
+                  ) : user ? (
                     <div className="flex items-center gap-2 text-xs font-medium text-[#16B8A6]">
                       <CheckCircle2 className="h-4 w-4" />
                       <span>Connected as {user.email}</span>
@@ -747,45 +1085,9 @@ export function SetupWizard({
                       Connect Google Admin Account
                     </Button>
                   )}
-                </div>
-              </div>
-
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-[#223257] bg-[#F6F8FC]/70 dark:bg-[#0E172E] space-y-3">
-                <div className="text-xs font-semibold text-[#182238] dark:text-slate-100">
-                  PostgreSQL RLS & Cloudflare Workers Commands
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#101B35] text-slate-100 font-mono text-[11px]">
-                    <span className="truncate">{migrationCommand}</span>
-                    <button
-                      type="button"
-                      onClick={() => void copyCommand('mig', migrationCommand)}
-                      className="text-slate-300 hover:text-white shrink-0 cursor-pointer"
-                      aria-label="Copy migration command"
-                    >
-                      {copiedCmd === 'mig' ? (
-                        <Check className="h-3.5 w-3.5 text-[#16B8A6]" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#101B35] text-slate-100 font-mono text-[11px]">
-                    <span className="truncate">{deployCommand}</span>
-                    <button
-                      type="button"
-                      onClick={() => void copyCommand('cf', deployCommand)}
-                      className="text-slate-300 hover:text-white shrink-0 cursor-pointer"
-                      aria-label="Copy Cloudflare deploy command"
-                    >
-                      {copiedCmd === 'cf' ? (
-                        <Check className="h-3.5 w-3.5 text-[#16B8A6]" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </div>
+                  {authError && (
+                    <p className="text-xs text-red-600 dark:text-red-400">{authError}</p>
+                  )}
                 </div>
               </div>
             </div>
