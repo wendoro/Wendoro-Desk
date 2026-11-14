@@ -5,6 +5,7 @@ import { FirebaseProvider, useFirebase } from '@/src/components/shell/FirebasePr
 import { TenantProvider, useTenant } from '@/src/components/shell/TenantProvider';
 import { ThemeProvider } from '@/src/components/shell/ThemeProvider';
 import { WENDORO_MODULES } from '@/src/core/registry/modules';
+import { DeploymentGuideView } from '@/src/features/foundation/DeploymentGuideView';
 import { DesignSystemView } from '@/src/features/foundation/DesignSystemView';
 import { FoundationOverview } from '@/src/features/foundation/FoundationOverview';
 import { IdentityTenancyView } from '@/src/features/foundation/IdentityTenancyView';
@@ -58,6 +59,8 @@ function WorkspaceRouter() {
     switch (activeRoute) {
       case 'setup':
         return ['WENDORO', 'Core Platform', 'Setup Wizard'];
+      case 'deploy':
+        return ['WENDORO', 'Core Platform', 'Deploy & Distribute'];
       case 'schema':
         return ['WENDORO', 'Core Platform', 'Architecture & Schema'];
       case 'identity':
@@ -104,6 +107,8 @@ function WorkspaceRouter() {
             onSkip={() => setActiveRoute('overview')}
           />
         );
+      case 'deploy':
+        return <DeploymentGuideView onNavigate={setActiveRoute} />;
       case 'schema':
         return <SchemaExplorerView />;
       case 'identity':

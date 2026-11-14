@@ -20,6 +20,7 @@ import {
   firebaseProjectConfig,
   googleProvider,
   handleFirestoreError,
+  isFirebaseConfigured,
   testFirestoreConnection,
 } from '@/src/lib/firebase';
 
@@ -27,6 +28,7 @@ interface FirebaseContextValue {
   user: User | null;
   authReady: boolean;
   connectionState: FirestoreConnectionState;
+  isConfigured: boolean;
   projectId: string;
   firestoreDatabaseId: string;
   authError: string | null;
@@ -47,12 +49,20 @@ function sanitizeId(value: string): string {
 
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState(false);
-  const [connectionState, setConnectionState] =
-    useState<FirestoreConnectionState>('checking');
+  const [authReady, setAuthReady] = useState(!isFirebaseConfigured);
+  const [connectionState, setConnectionState] = useState<FirestoreConnectionState>(
+    isFirebaseConfigured ? 'checking' : 'unconfigured',
+  );
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isFirebaseConfigured || !auth || !db) {
+      setAuthReady(true);
+      setConnectionState('unconfigured');
+      return;
+    }
+
+    const firestoreDb = db;
     let active = true;
     testFirestoreConnection().then((state) => {
       if (active) setConnectionState(state);
@@ -67,7 +77,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
         const uid = sanitizeId(nextUser.uid);
         const profilePath = `users/${uid}/private/profile`;
         try {
-          const profileRef = doc(db, 'users', uid, 'private', 'profile');
+          const profileRef = doc(firestoreDb, 'users', uid, 'private', 'profile');
           const snap = await getDoc(profileRef);
           const fullName = (nextUser.displayName || nextUser.email).slice(0, 120);
           const email = nextUser.email.slice(0, 254);
@@ -101,6 +111,12 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     setAuthError(null);
+    if (!auth) {
+      setAuthError(
+        'Firebase is not configured in this deployment. Add VITE_FIREBASE_* variables or firebase-applet-config.json.',
+      );
+      return;
+    }
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
@@ -112,6 +128,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
 
   const signOutUser = async () => {
     setAuthError(null);
+    if (!auth) return;
     await signOut(auth);
   };
 
@@ -124,7 +141,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     companyName: string;
     activeRoute: string;
   }) => {
-    if (!authReady || !user || !user.emailVerified) return;
+    if (!db || !authReady || !user || !user.emailVerified) return;
 
     const uid = sanitizeId(user.uid);
     const safeCompanyId = sanitizeId(companyId);
@@ -181,8 +198,9 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
         user,
         authReady,
         connectionState,
-        projectId: firebaseProjectConfig.projectId,
-        firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
+        isConfigured: isFirebaseConfigured,
+        projectId: firebaseProjectConfig?.projectId ?? 'not-configured',
+        firestoreDatabaseId: firebaseProjectConfig?.firestoreDatabaseId ?? 'not-configured',
         authError,
         signInWithGoogle,
         signOutUser,

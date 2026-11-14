@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Building2, Layers, Moon, Search, Shield, Sun, X } from 'lucide-react';
+import { Building2, Layers, Moon, Rocket, Search, Shield, Sun, X } from 'lucide-react';
 import { WENDORO_MODULES } from '@/src/core/registry/modules';
 import { useTheme } from './ThemeProvider';
 import { useTenant } from './TenantProvider';
@@ -51,6 +51,14 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
         detail: 'Onboard a new company, regional GST/currency preset & license tier',
         icon: <Layers className="h-4 w-4 text-[#16B8A6]" />,
         action: () => onNavigate('setup'),
+      },
+      {
+        id: 'nav-deploy',
+        group: 'Foundation Workspace',
+        label: 'Deploy & Distribute Guide',
+        detail: 'Cloudflare Workers, Docker Compose, Node.js 24 PaaS, Vercel & Netlify',
+        icon: <Rocket className="h-4 w-4 text-[#4169F5]" />,
+        action: () => onNavigate('deploy'),
       },
       {
         id: 'nav-schema',

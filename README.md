@@ -70,16 +70,30 @@ All entitlement quotas (users, companies, branches, storage, AI tokens, API call
 ## Deploy on Cloudflare
 
 ### Option 1: One-Click Deploy
-Click the **Deploy to Cloudflare** button at the top of this README. Cloudflare will clone [`https://github.com/wendoro/Wendoro-Desk`](https://github.com/wendoro/Wendoro-Desk), install dependencies, run `npm run build`, and publish `dist/` using [`wrangler.jsonc`](./wrangler.jsonc).
+Click the **Deploy to Cloudflare** button at the top of this README. Cloudflare will clone [`https://github.com/wendoro/Wendoro-Desk`](https://github.com/wendoro/Wendoro-Desk), run `npm ci`, `npm run build`, and publish `dist/` using [`wrangler.jsonc`](./wrangler.jsonc).
 
-### Option 2: CLI Deploy via Wrangler
+### Option 2: Automated Deployment (Every Push to `main`)
+
+**Method A — Cloudflare Workers Git Integration (Recommended):**
+1. In Cloudflare Dashboard, go to **Workers & Pages -> Create -> Import a repository**.
+2. Connect your GitHub repository (`Wendoro-Desk` / `wendoro-desk`).
+3. Set **Build command** to `npm run build` and **Deploy command** to `npx wrangler deploy`.
+4. Every push to `main` will automatically build and deploy.
+
+**Method B — GitHub Actions CI/CD (`.github/workflows/deploy-cloudflare.yml`):**
+1. Add two repository secrets in GitHub (**Settings -> Secrets and variables -> Actions**):
+   - `CLOUDFLARE_API_TOKEN` (Cloudflare API Token with *Edit Cloudflare Workers* permissions)
+   - `CLOUDFLARE_ACCOUNT_ID` (Your Cloudflare Account ID)
+2. Push to `main` (or trigger **Run workflow** manually) to run `npm ci`, `npm run lint`, `npm run build`, and `wrangler deploy`.
+
+### Option 3: CLI Deploy via Wrangler
 ```bash
 # 1. Clone the repository
 git clone https://github.com/wendoro/Wendoro-Desk.git
 cd Wendoro-Desk
 
 # 2. Install dependencies
-npm install
+npm ci
 
 # 3. Build and deploy to Cloudflare Workers & Static Assets
 npm run deploy:cloudflare
@@ -94,10 +108,38 @@ When enabling Phase 1+ persistent PostgreSQL & R2 storage on Cloudflare:
 
 ---
 
+## Multi-Platform Self-Hosting & Distribution
+
+WENDORO ERP avoids vendor lock-in. In addition to Cloudflare Workers, you can deploy the exact same codebase across containers, bare-metal Linux, PaaS platforms, and edge CDNs.
+
+### Option A: Docker Compose + PostgreSQL 16 (Self-Hosted Stack)
+Boots a `postgres:16-alpine` database (automatically initialized with `src/db/migrations/0000_core_foundation_rls.sql`) and the Node 24 production server (`server.ts` with `/api/health`):
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+curl -fsS http://localhost:3000/api/health
+```
+
+### Option B: Node.js 24 / Coolify / Railway / Render / VPS
+```bash
+npm ci
+npm run build
+psql "$DATABASE_URL" -f src/db/migrations/0000_core_foundation_rls.sql
+npm start
+```
+`npm start` executes `node server.ts` on `0.0.0.0:${PORT:-3000}` with Express SPA routing and health checks. Schema migrations are configured in [`drizzle.config.ts`](./drizzle.config.ts).
+
+### Option C: Vercel & Netlify
+- **Vercel**: Pre-configured via [`vercel.json`](./vercel.json) (`npm run build` -> `dist/`).
+- **Netlify**: Pre-configured via [`netlify.toml`](./netlify.toml) (`npm run build` -> `dist/` with SPA redirects).
+
+---
+
 ## Local Development
 
 ```bash
-# Install packages
+# Install packages (requires Node.js >= 24.12)
 npm install
 
 # Start Vite development server on port 3000
@@ -110,7 +152,19 @@ npm run build
 
 ---
 
-## License & Attribution
+## Security & Public Repository Hygiene
 
-- **Open-Source Core**: Apache-2.0 License
+This repository is safe for public hosting:
+- `firebase-applet-config.json`, `.env*` (except `.env.example`), `.dev.vars`, `.wrangler/`, and `bun.lock` are excluded via `.gitignore`.
+- No API keys, database URLs, personal emails, or signing secrets are committed.
+- **For self-hosters**: Copy `firebase-applet-config.example.json` to `firebase-applet-config.json` (gitignored) or configure `VITE_FIREBASE_*` build variables from `.env.example`. Server-side secrets (`GEMINI_API_KEY`, `DATABASE_URL`, `BETTER_AUTH_SECRET`) must only be set via `npx wrangler secret put`, `.env` on your server, or your deployment provider's encrypted secrets panel.
+
+---
+
+## Open-Source Governance & Licensing
+
+- **Open-Source Core**: [`LICENSE`](./LICENSE) (Apache-2.0 License — Copyright 2026 BakeWeb)
+- **Contributing Guide**: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- **Security Policy**: [`SECURITY.md`](./SECURITY.md)
 - **Commercial Plans & Enterprise Modules**: Licensed by **BakeWeb** (India)
+

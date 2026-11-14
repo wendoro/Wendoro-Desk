@@ -14,6 +14,7 @@ import {
   Megaphone,
   Palette,
   Receipt,
+  Rocket,
   ShieldCheck,
   ShoppingBag,
   SlidersHorizontal,
@@ -67,6 +68,7 @@ export function Sidebar({
   const foundationItems = [
     { id: 'overview', label: 'Executive Shell', icon: LayoutDashboard },
     { id: 'setup', label: 'Setup Wizard', icon: SlidersHorizontal },
+    { id: 'deploy', label: 'Deploy & Distribute', icon: Rocket },
     { id: 'schema', label: 'Architecture & Schema', icon: Database },
     { id: 'identity', label: 'Identity & Multi-Tenancy', icon: ShieldCheck },
     { id: 'design', label: 'Design System', icon: Palette },

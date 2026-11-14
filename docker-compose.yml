@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wendoro-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-wendoro}
+      POSTGRES_USER: ${POSTGRES_USER:-wendoro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wendoro_change_me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - wendoro_pg_data:/var/lib/postgresql/data
+      - ./src/db/migrations/0000_core_foundation_rls.sql:/docker-entrypoint-initdb.d/0000_core_foundation_rls.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wendoro} -d ${POSTGRES_DB:-wendoro}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wendoro-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wendoro}:${POSTGRES_PASSWORD:-wendoro_change_me}@postgres:5432/${POSTGRES_DB:-wendoro}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-replace_with_32_byte_secret}
+    ports:
+      - "3000:3000"
+
+volumes:
+  wendoro_pg_data:

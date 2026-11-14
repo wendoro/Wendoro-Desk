@@ -1,14 +1,67 @@
-import { initializeApp } from 'firebase/app';
-import { GoogleAuthProvider, getAuth } from 'firebase/auth';
-import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { FirebaseApp, initializeApp } from 'firebase/app';
+import { Auth, GoogleAuthProvider, getAuth } from 'firebase/auth';
+import { Firestore, doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 
-const app = initializeApp(firebaseConfig);
+export interface FirebaseClientConfig {
+  projectId: string;
+  appId: string;
+  apiKey: string;
+  authDomain: string;
+  firestoreDatabaseId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+}
 
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
+const localConfigModules = import.meta.glob<{ default: FirebaseClientConfig }>(
+  '/firebase-applet-config.json',
+  { eager: true },
+);
+
+function resolveFirebaseConfig(): FirebaseClientConfig | null {
+  const localModule = localConfigModules['/firebase-applet-config.json'];
+  const fileConfig = localModule?.default;
+  if (fileConfig && fileConfig.apiKey && fileConfig.projectId) {
+    return fileConfig;
+  }
+
+  const envApiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+  const envProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  const envAppId = import.meta.env.VITE_FIREBASE_APP_ID;
+  const envAuthDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
+
+  if (envApiKey && envProjectId && envAppId && envAuthDomain) {
+    return {
+      apiKey: envApiKey,
+      projectId: envProjectId,
+      appId: envAppId,
+      authDomain: envAuthDomain,
+      firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '(default)',
+      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+    };
+  }
+
+  return null;
+}
+
+export const firebaseProjectConfig = resolveFirebaseConfig();
+export const isFirebaseConfigured = Boolean(firebaseProjectConfig);
+
+let app: FirebaseApp | null = null;
+let dbInstance: Firestore | null = null;
+let authInstance: Auth | null = null;
+
+if (firebaseProjectConfig) {
+  app = initializeApp(firebaseProjectConfig);
+  dbInstance = firebaseProjectConfig.firestoreDatabaseId
+    ? getFirestore(app, firebaseProjectConfig.firestoreDatabaseId)
+    : getFirestore(app);
+  authInstance = getAuth(app);
+}
+
+export const db = dbInstance;
+export const auth = authInstance;
 export const googleProvider = new GoogleAuthProvider();
-export const firebaseProjectConfig = firebaseConfig;
 
 export enum OperationType {
   CREATE = 'create',
@@ -44,13 +97,13 @@ export function handleFirestoreError(
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
       providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
+        auth?.currentUser?.providerData?.map((provider) => ({
           providerId: provider.providerId,
           email: provider.email,
         })) || [],
@@ -62,9 +115,12 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
-export type FirestoreConnectionState = 'checking' | 'connected' | 'offline';
+export type FirestoreConnectionState = 'checking' | 'connected' | 'offline' | 'unconfigured';
 
 export async function testFirestoreConnection(): Promise<FirestoreConnectionState> {
+  if (!db) {
+    return 'unconfigured';
+  }
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return 'connected';
@@ -73,9 +129,10 @@ export async function testFirestoreConnection(): Promise<FirestoreConnectionStat
       console.error('Please check your Firebase configuration.');
       return 'offline';
     }
-    // Permission denied or missing document still confirms active server round-trip
     return 'connected';
   }
 }
 
-void testFirestoreConnection();
+if (isFirebaseConfigured) {
+  void testFirestoreConnection();
+}

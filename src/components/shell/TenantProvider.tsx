@@ -50,8 +50,8 @@ const SETUP_STORAGE_KEY = 'wendoro.setup.v1';
  */
 const INITIAL_PRINCIPAL: SessionPrincipal = SessionPrincipalSchema.parse({
   userId: '11111111-1111-4111-8111-111111111101',
-  email: 'wendoro.dev@gmail.com',
-  fullName: 'Principal Architect',
+  email: 'architect@example.com',
+  fullName: 'Workspace Architect',
   mfaEnabled: true,
   isPlatformAdmin: true,
   activeTenantId: '22222222-2222-4222-8222-222222222201',

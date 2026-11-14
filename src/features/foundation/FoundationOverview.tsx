@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Building2, Database, Layers, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import { ArrowRight, Building2, Database, Layers, Rocket, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/src/components/ui/Button';
 import { Surface } from '@/src/components/ui/Surface';
 import { useTenant } from '@/src/components/shell/TenantProvider';
@@ -25,14 +25,14 @@ export function FoundationOverview({
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <p className="text-xs font-medium text-[#4169F5] mb-1">
-            Phase 0 · Foundation Workspace
+            Phase 0 · Open-Core ERP by BakeWeb
           </p>
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-[#182238] dark:text-slate-100 text-balance">
             WENDORO Business Operating System
           </h1>
           <p className="mt-1.5 text-sm text-[#718096] dark:text-slate-400 max-w-2xl">
             Multi-tenant architecture foundation, PostgreSQL Row-Level Security schema,
-            identity separation model, and enterprise UI shell ready for Phase 1 approval.
+            identity separation model, and portable multi-cloud deployment shell.
           </p>
         </div>
 
@@ -40,6 +40,10 @@ export function FoundationOverview({
           <Button variant="outline" size="sm" onClick={() => onNavigate('setup')}>
             <SlidersHorizontal className="h-4 w-4 text-[#16B8A6]" />
             Setup Wizard
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => onNavigate('deploy')}>
+            <Rocket className="h-4 w-4 text-[#8B5CF6]" />
+            Deploy
           </Button>
           <Button variant="outline" size="sm" onClick={() => onNavigate('schema')}>
             <Database className="h-4 w-4 text-[#4169F5]" />
