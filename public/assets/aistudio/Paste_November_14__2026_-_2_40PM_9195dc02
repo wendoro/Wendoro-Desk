@@ -1,0 +1,1214 @@
+# WENDORO
+## Universal AI-Powered Business Operating System
+### Product Requirements Document (PRD) & Technical Architecture — V1.0
+
+**Product:** WENDORO ERP  
+**Category:** Universal Multi-Industry Business Management Platform  
+**Architecture:** Modular, Multi-Tenant, API-First  
+**Development Environment:** Google AI Studio + GitHub  
+**Cloud Infrastructure:** Cloudflare + Firebase  
+**Primary Database:** PostgreSQL  
+**AI Provider:** Gemini with multi-provider support  
+**Design:** Premium, Lightweight, Responsive Enterprise UI
+
+---
+
+# 1. Product Vision
+
+WENDORO is a universal business operating system designed to manage the complete operations of businesses across industries.
+
+It combines ERP, CRM, HRMS, accounting, inventory, ecommerce, marketing, communication, project management, business intelligence and artificial intelligence into one extensible platform.
+
+WENDORO must support:
+
+- Small businesses and startups.
+- Medium-sized businesses.
+- Large enterprises.
+- Multi-company organizations.
+- Retailers and wholesalers.
+- Ecommerce businesses.
+- Manufacturers.
+- Real estate businesses.
+- Electronics companies.
+- Service providers.
+- Professional organizations.
+- Industry-specific businesses.
+
+The platform must not assume that every customer manufactures or sells physical products.
+
+It must support products, services, subscriptions, rentals, digital goods, assets and custom business entities.
+
+## Core principle
+
+One platform. Multiple industries. Independent applications. Shared business intelligence.
+
+# 2. Product Architecture
+
+WENDORO will have three primary architectural layers.
+
+## Layer A — WENDORO Core
+
+Shared services required by all applications:
+
+1. Identity and authentication.
+2. Organization management.
+3. Multi-tenancy.
+4. User management.
+5. Roles and permissions.
+6. Branch and department management.
+7. Audit logging.
+8. Global search.
+9. Notification engine.
+10. Document management.
+11. Workflow engine.
+12. Custom fields.
+13. API management.
+14. Integration manager.
+15. Subscription and licensing.
+16. Localization.
+17. AI service gateway.
+
+## Layer B — Business Applications
+
+Independent applications built on WENDORO Core:
+
+- CRM
+- Sales
+- Purchase
+- Inventory
+- Accounting
+- Finance
+- HRMS
+- Payroll
+- Marketing
+- Ecommerce
+- POS
+- Projects
+- Support
+- Communication
+- Documents
+- Analytics
+- Manufacturing
+- Asset management
+- Logistics
+- Quality management
+
+Applications must be independently activatable.
+
+## Layer C — Industry Applications
+
+Industry-specific application packages:
+
+- Retail and ecommerce.
+- Manufacturing.
+- Electronics.
+- Real estate.
+- Construction.
+- Healthcare.
+- Education.
+- Hospitality.
+- Restaurants.
+- Logistics.
+- Agriculture.
+- Professional services.
+- IT and software.
+- Wholesale and distribution.
+- Media and entertainment.
+
+Industry applications must extend the common business platform without duplicating its core services.
+
+# 3. Complete Module Requirements
+
+## 3.1 Executive Dashboard
+
+Features:
+
+- Company overview.
+- Revenue and expenses.
+- Profit and loss.
+- Sales performance.
+- Purchase performance.
+- Cash flow.
+- Outstanding payments.
+- Inventory valuation.
+- Employee statistics.
+- Pending approvals.
+- Business alerts.
+- Custom KPI widgets.
+- Dashboard builder.
+- Date and branch filters.
+
+Dashboard widgets must respect user permissions.
+
+## 3.2 CRM
+
+Features:
+
+- Leads.
+- Contacts.
+- Customers.
+- Organizations.
+- Opportunities.
+- Sales pipeline.
+- Lead scoring.
+- Follow-up reminders.
+- Customer activities.
+- Customer communication history.
+- Customer segmentation.
+- Customer lifecycle.
+- Sales forecasting.
+- Customer portal.
+- Import and export.
+- Custom CRM fields.
+
+## 3.3 Sales
+
+Features:
+
+- Quotations.
+- Estimates.
+- Sales orders.
+- Sales invoices.
+- Recurring invoices.
+- Credit notes.
+- Debit notes.
+- Sales returns.
+- Customer payments.
+- Payment allocation.
+- Sales commissions.
+- Discount rules.
+- Pricing lists.
+- Sales targets.
+- POS integration.
+- Order fulfilment.
+- Delivery tracking.
+
+## 3.4 Purchase
+
+Features:
+
+- Supplier management.
+- RFQ.
+- Supplier quotations.
+- Purchase orders.
+- Purchase invoices.
+- Purchase returns.
+- Supplier payments.
+- Purchase approvals.
+- Vendor rating.
+- Supplier price lists.
+- Procurement analytics.
+
+## 3.5 Universal Product and Service Catalogue
+
+Support multiple item types:
+
+- Physical goods.
+- Digital products.
+- Services.
+- Rentals.
+- Subscriptions.
+- Bundles.
+- Raw materials.
+- Semi-finished goods.
+- Finished goods.
+- Fixed assets.
+- Custom item types.
+
+Common properties:
+
+- SKU.
+- Barcode.
+- Name.
+- Description.
+- Category.
+- Brand.
+- Variants.
+- Attributes.
+- Unit of measure.
+- Pricing.
+- Cost.
+- Tax classification.
+- Revenue account.
+- Expense account.
+- Inventory tracking configuration.
+- Serial number tracking.
+- Batch tracking.
+- Expiry tracking.
+- Product images.
+- Attachments.
+
+## 3.6 Inventory and Warehouse
+
+Features:
+
+- Multiple warehouses.
+- Warehouse locations.
+- Stock ledger.
+- Stock balance.
+- Stock transfers.
+- Stock adjustments.
+- Goods receipt.
+- Goods issue.
+- Batch tracking.
+- Serial number tracking.
+- Barcode scanning.
+- Reorder levels.
+- Stock valuation.
+- Inventory forecasting.
+- Stock reconciliation.
+- Returns.
+- Expiry management.
+- Physical inventory counting.
+
+Inventory must use controlled stock movement records. Posted movements must not be silently overwritten.
+
+## 3.7 Accounting and Finance
+
+Features:
+
+- Chart of accounts.
+- General ledger.
+- Journal entries.
+- Accounts payable.
+- Accounts receivable.
+- Cash management.
+- Bank accounts.
+- Bank reconciliation.
+- Payment vouchers.
+- Receipt vouchers.
+- Expense management.
+- Cost centres.
+- Budgets.
+- Fixed assets.
+- Depreciation.
+- Financial periods.
+- Financial statements.
+- Balance sheet.
+- Profit and loss.
+- Cash flow statement.
+- Consolidated financial reporting.
+
+Accounting requirements:
+
+- Double-entry accounting.
+- Balanced journal entries.
+- Configurable fiscal years.
+- Controlled posting and reversal.
+- Period closing.
+- Immutable audit history.
+- Currency precision.
+- Multi-currency support.
+- Exchange rate history.
+
+Never use floating-point arithmetic for financial amounts. Use PostgreSQL NUMERIC with explicit currency precision.
+
+## 3.8 India Tax and Compliance
+
+Features:
+
+- GST registration profiles.
+- CGST, SGST and IGST.
+- HSN/SAC.
+- Tax calculation rules.
+- Tax invoices.
+- Credit and debit notes.
+- E-invoice integration.
+- E-way bill integration.
+- TDS support.
+- GST reports.
+- Tax reconciliation.
+- Compliance document storage.
+
+Tax calculations and filing integrations must be configurable by jurisdiction and updated against applicable official requirements.
+
+## 3.9 HRMS and Payroll
+
+Features:
+
+- Employee directory.
+- Employee onboarding.
+- Departments.
+- Designations.
+- Employment contracts.
+- Attendance.
+- Shifts.
+- Leave management.
+- Holiday calendar.
+- Payroll.
+- Salary components.
+- Payslips.
+- Employee expenses.
+- Reimbursements.
+- Performance reviews.
+- Recruitment.
+- Interviews.
+- Training.
+- Employee self-service portal.
+
+Payroll must support country-specific configurations.
+
+## 3.10 Marketing
+
+Features:
+
+- Email campaigns.
+- WhatsApp campaigns.
+- SMS campaigns.
+- Customer segmentation.
+- Marketing automation.
+- Lead nurturing.
+- Campaign analytics.
+- Marketing templates.
+- Landing pages.
+- Forms.
+- Social integrations.
+- Advertisement performance.
+- Consent management.
+- Unsubscribe management.
+
+## 3.11 Communication
+
+Features:
+
+- Internal messaging.
+- Team channels.
+- Group conversations.
+- Email integrations.
+- WhatsApp Business integrations.
+- Notifications.
+- Announcements.
+- Calendar.
+- Meetings.
+- File sharing.
+- Communication history.
+
+## 3.12 Projects and Operations
+
+Features:
+
+- Projects.
+- Tasks.
+- Milestones.
+- Kanban boards.
+- Gantt charts.
+- Timesheets.
+- Resource management.
+- Project budgets.
+- Client billing.
+- Project expenses.
+- Progress reporting.
+
+## 3.13 Customer Support
+
+Features:
+
+- Support tickets.
+- Ticket assignments.
+- Priority management.
+- SLA.
+- Customer chat.
+- Knowledge base.
+- Automated ticket classification.
+- Customer feedback.
+- Support analytics.
+
+## 3.14 Document Management
+
+Features:
+
+- File storage.
+- Document categories.
+- Version history.
+- Document permissions.
+- PDF generation.
+- Document templates.
+- Contracts.
+- E-signature integration.
+- Expiry reminders.
+- Document audit history.
+
+# 4. Industry Application Packages
+
+Industry applications must be optional and independently installable.
+
+## Ecommerce and Retail
+
+- Online storefront.
+- Marketplace integrations.
+- POS.
+- Multi-store.
+- Order management.
+- Returns and refunds.
+- Promotions.
+- Loyalty.
+- Fulfilment.
+- Shipping.
+
+## Electronics
+
+- IMEI tracking.
+- Serial numbers.
+- Warranty management.
+- Repair management.
+- Spare parts.
+- RMA.
+- Service centres.
+- Device lifecycle.
+
+## Manufacturing
+
+- Bill of Materials.
+- Routing.
+- Work orders.
+- Production planning.
+- Material requirements planning.
+- Shop-floor operations.
+- Quality inspection.
+- Machine maintenance.
+- Production costing.
+
+## Real Estate
+
+- Property listings.
+- Property units.
+- Owners.
+- Tenants.
+- Brokers.
+- Leads.
+- Rent collection.
+- Lease contracts.
+- Property maintenance.
+- Commission management.
+
+## Construction
+
+- BOQ.
+- Project estimates.
+- Contractors.
+- Subcontractors.
+- Site management.
+- Materials.
+- Labour.
+- Equipment.
+- Project billing.
+- Budget monitoring.
+
+## Logistics
+
+- Fleet.
+- Vehicles.
+- Drivers.
+- Routes.
+- Dispatch.
+- Delivery.
+- Fuel.
+- Transport billing.
+- Shipment tracking.
+
+## Other Industry Packages
+
+Support configurable packages for healthcare, education, agriculture, hospitality, restaurants, professional services, media, financial services and other sectors.
+
+# 5. WENDORO Identity
+
+Build a centralized identity platform.
+
+Recommended authentication framework: Better Auth.
+
+Primary database: PostgreSQL.
+
+Features:
+
+- Email and password.
+- Google login.
+- Microsoft login.
+- Magic links.
+- Email OTP.
+- Passkeys.
+- MFA.
+- Password recovery.
+- Session management.
+- Device management.
+- Login history.
+- Account security.
+- Organization memberships.
+- Multiple companies per user.
+- Company invitations.
+- User suspension.
+- Company-specific access policies.
+
+Identity and business authorization must be separate.
+
+A user can have different roles in different companies.
+
+# 6. Multi-Tenant Architecture
+
+Every business must have a tenant identity.
+
+Core entities:
+
+- tenants
+- companies
+- branches
+- users
+- memberships
+- departments
+- roles
+- permissions
+- role_permissions
+- user_role_assignments
+- invitations
+
+Requirements:
+
+1. Every tenant-owned business record must contain a tenant identifier.
+2. Branch-specific records must support branch identifiers where relevant.
+3. API authorization must validate membership.
+4. Database access must enforce tenant isolation.
+5. Cross-company access must never happen implicitly.
+6. Administrative support access must be explicitly authorized and audited.
+7. Users may belong to multiple companies.
+8. Subscription entitlements must be checked server-side.
+
+Use PostgreSQL Row-Level Security where appropriate, with carefully designed transaction-scoped tenant context and connection pooling.
+
+# 7. WENDORO Connect — Integration Platform
+
+Build a universal integration manager.
+
+Every company must manage its own integrations.
+
+Supported integration types:
+
+- OAuth 2.0.
+- OpenID Connect.
+- SAML.
+- REST APIs.
+- Webhooks.
+- SMTP.
+- IMAP.
+- API keys.
+- Configurable custom connectors.
+
+Initial connectors:
+
+- Google Workspace.
+- Microsoft 365.
+- Gmail.
+- Outlook.
+- Google Drive.
+- OneDrive.
+- Google Calendar.
+- Microsoft Calendar.
+- WhatsApp Business Platform.
+- Shopify.
+- WooCommerce.
+- Razorpay.
+- Cashfree.
+- Stripe.
+- Meta Ads.
+- Google Ads.
+- Mailchimp.
+- Shipping providers.
+- SMS providers.
+
+Integration requirements:
+
+- Company-specific connection.
+- OAuth consent.
+- Token encryption.
+- Refresh token handling.
+- Scope management.
+- Connection status.
+- Connection testing.
+- Disconnect and revoke.
+- Sync history.
+- Error logs.
+- Retry management.
+- Webhook verification.
+- Rate limiting.
+
+Never request external platform passwords when an approved OAuth or API authentication mechanism exists.
+
+# 8. WENDORO AI
+
+Build an AI gateway that supports multiple model providers.
+
+Initial provider: Gemini.
+
+Future providers: OpenAI, Anthropic and compatible model APIs.
+
+AI applications:
+
+- Business Copilot.
+- AI CRM.
+- AI Sales.
+- AI Finance.
+- AI Inventory.
+- AI HR.
+- AI Marketing.
+- AI Support.
+- Document Intelligence.
+- Natural-language reporting.
+- Business forecasting.
+- AI Search.
+- AI Agents.
+
+AI architecture requirements:
+
+- Provider abstraction.
+- Model configuration.
+- API key management.
+- Usage tracking.
+- Token tracking.
+- Cost tracking.
+- Company-specific AI settings.
+- Context retrieval.
+- RAG.
+- Tool calling.
+- Approval workflows.
+- AI audit logging.
+- Rate limits.
+
+AI must not bypass business permissions.
+
+Sensitive actions require explicit authorization and, where configured, human approval.
+
+# 9. Workflow and Automation Engine
+
+Create a reusable visual automation engine.
+
+Workflow structure:
+
+Trigger → Conditions → Actions → Approval → Execution → Logging.
+
+Triggers:
+
+- New record.
+- Record updated.
+- Payment received.
+- Invoice overdue.
+- Stock below threshold.
+- Employee joined.
+- Leave submitted.
+- Support ticket created.
+- Scheduled date.
+- Webhook received.
+
+Actions:
+
+- Send email.
+- Send WhatsApp message.
+- Create task.
+- Assign user.
+- Update record.
+- Generate document.
+- Request approval.
+- Call API.
+- Run AI tool.
+- Generate report.
+
+Support retry policies, idempotency, execution history and permission checks.
+
+# 10. Technology Architecture
+
+## Frontend
+
+- React.
+- TypeScript.
+- Vite.
+- Tailwind CSS.
+- shadcn/ui.
+- Lucide icons.
+- TanStack Query.
+- React Hook Form.
+- Zod.
+- Recharts.
+
+## Backend
+
+- Cloudflare Workers.
+- TypeScript.
+- Modular domain architecture.
+- REST APIs.
+- OpenAPI documentation.
+- Drizzle ORM.
+- Zod validation.
+
+## Database
+
+- PostgreSQL.
+- Neon for initial managed development.
+- Cloudflare Hyperdrive for Worker connectivity.
+- Version-controlled migrations.
+- PostgreSQL constraints.
+- Indexing.
+- Transaction management.
+- Row-Level Security.
+
+## Firebase
+
+Use for selected services:
+
+- Firebase Cloud Messaging.
+- Optional Firestore-based realtime chat or presence.
+- Optional Firebase integrations.
+
+PostgreSQL remains the authoritative database for all business transactions.
+
+## Cloudflare
+
+- Workers: API execution.
+- Hyperdrive: PostgreSQL connections.
+- R2: file storage.
+- KV: cache and configuration.
+- Queues: background jobs.
+- Workflows: long-running processes.
+- Durable Objects: real-time coordination.
+- WAF: application protection.
+- Turnstile: bot protection.
+
+Do not use KV as the primary business database.
+
+## Desktop and Self-Hosted Future
+
+Keep business logic and domain services portable.
+
+Design a deployment abstraction that can eventually support:
+
+- Cloudflare hosted edition.
+- Self-hosted Linux edition.
+- Native Windows installer.
+- Tauri desktop application.
+
+A future local edition must use compatible local database, storage, background job and identity adapters. Cloudflare Workers and Firebase must not be assumed to run locally.
+
+# 11. Database Architecture
+
+Organize PostgreSQL tables by business domain.
+
+Suggested schema namespaces:
+
+- identity
+- organization
+- core
+- crm
+- sales
+- purchase
+- inventory
+- finance
+- hr
+- marketing
+- communication
+- projects
+- support
+- documents
+- integrations
+- automation
+- ai
+- industry
+- subscriptions
+- audit
+
+Database design principles:
+
+- UUID primary keys.
+- Tenant ownership.
+- Foreign key integrity.
+- Appropriate unique constraints.
+- Transaction-safe operations.
+- Created and updated timestamps.
+- Soft deletion only where appropriate.
+- Immutable financial audit records.
+- Indexed lookup columns.
+- Versioned migrations.
+
+Avoid creating one enormous universal table for unrelated business entities.
+
+Use relational models for core records and controlled metadata-driven custom entities for extensions.
+
+# 12. Subscription and Licensing
+
+WENDORO should support:
+
+- Free.
+- Starter.
+- Business.
+- Professional.
+- Enterprise.
+- White Label.
+- Self-Hosted.
+
+Subscription entitlements:
+
+- Number of users.
+- Number of companies.
+- Number of branches.
+- Activated modules.
+- Storage allowance.
+- API usage.
+- AI usage.
+- Integration limits.
+- Automation limits.
+- Advanced reports.
+- Custom branding.
+- Custom domain.
+- SSO.
+- Audit retention.
+- Support level.
+
+Entitlements must be enforced on the backend.
+
+# 13. Custom Application Builder
+
+Create a controlled metadata-driven application builder.
+
+Administrators should be able to:
+
+- Create custom applications.
+- Define entities.
+- Define fields.
+- Define relationships.
+- Create forms.
+- Create table views.
+- Create kanban views.
+- Create detail views.
+- Configure permissions.
+- Create workflows.
+- Create dashboards.
+- Create reports.
+- Configure APIs.
+
+Custom applications must be versioned.
+
+Core financial and operational logic must remain protected from arbitrary custom code.
+
+# 14. Design System
+
+Visual direction: Premium, modern, clean, lightweight enterprise SaaS.
+
+Primary palette:
+
+- Midnight Navy: #101B35
+- Electric Blue: #4169F5
+- Violet: #8B5CF6
+- Teal: #16B8A6
+- Background Light: #F6F8FC
+- Surface: #FFFFFF
+- Text: #182238
+- Muted: #718096
+
+Design requirements:
+
+- Light and dark themes.
+- Responsive layouts.
+- Collapsible navigation.
+- Global search.
+- Command palette.
+- Dashboard widgets.
+- Data tables.
+- Advanced filters.
+- Kanban boards.
+- Form builder.
+- Charts.
+- Activity timelines.
+- Notification centre.
+- Company switcher.
+- User profile.
+- Accessible components.
+
+Avoid excessive gradients, unnecessary animation, oversized cards and decorative UI.
+
+Prefer information density and usability over visual complexity.
+
+# 15. Performance and Security
+
+Performance:
+
+- Lazy-loaded applications.
+- Pagination.
+- Indexed queries.
+- Background processing.
+- Caching.
+- Optimized file uploads.
+- API response limits.
+- Query monitoring.
+- Frontend code splitting.
+
+Security:
+
+- Authentication.
+- Authorization.
+- Tenant isolation.
+- RBAC.
+- Database policies.
+- Input validation.
+- Output encoding.
+- CSRF protection where applicable.
+- Secure cookies.
+- Rate limiting.
+- OAuth security.
+- Encryption.
+- Secrets management.
+- Audit logs.
+- Backup and recovery.
+- Security testing.
+
+Do not expose database credentials, AI provider keys, OAuth secrets or privileged API keys in frontend code.
+
+# 16. Development Roadmap
+
+Phase 0: Product foundation and repository.
+
+Phase 1: Authentication, organizations and tenant isolation.
+
+Phase 2: Core infrastructure and RBAC.
+
+Phase 3: Universal product and service catalogue.
+
+Phase 4: CRM, Sales and Purchase.
+
+Phase 5: Inventory and Warehouse.
+
+Phase 6: Accounting and Finance.
+
+Phase 7: HRMS and Payroll.
+
+Phase 8: Communication and Marketing.
+
+Phase 9: Integration Manager.
+
+Phase 10: AI and Automation.
+
+Phase 11: Industry Applications.
+
+Phase 12: Custom Application Builder.
+
+Phase 13: Analytics and Enterprise Features.
+
+Phase 14: Self-hosting and Desktop Edition.
+
+Phase 15: Production security, testing and launch.
+
+Each phase requires implementation, automated tests, migration validation and documented acceptance criteria before proceeding.
+
+# 17. Definition of Done
+
+A module is not complete simply because its interface exists.
+
+Every module must have:
+
+1. Database schema.
+2. Versioned migrations.
+3. Backend API.
+4. Validation.
+5. Authentication.
+6. Authorization.
+7. Tenant isolation.
+8. Frontend screens.
+9. Loading states.
+10. Error states.
+11. Empty states.
+12. Search and filtering where relevant.
+13. Audit history where required.
+14. Automated tests.
+15. API documentation.
+16. User-facing functionality.
+17. Integration with shared platform services.
+
+Financial modules additionally require transaction integrity and reconciliation tests.
+
+# 18. Project Success Criteria
+
+WENDORO V1 should demonstrate:
+
+- Multiple independent companies.
+- Multiple users per company.
+- Different roles per company.
+- Strict tenant isolation.
+- Independent application activation.
+- Product and service management.
+- Complete CRM-to-sales workflows.
+- Purchase-to-stock workflows.
+- Inventory movement tracking.
+- Double-entry accounting foundation.
+- External platform connections.
+- Centralized notifications.
+- AI-assisted business operations.
+- Customizable dashboards.
+- Responsive interface.
+- Reliable automated testing.
+- Documented backup and restoration.
+
+---
+
+# APPENDIX A — MASTER GOOGLE AI STUDIO DEVELOPMENT PROMPT
+
+You are the Principal Software Architect, Enterprise ERP Developer, Database Architect, Security Engineer and UI/UX Designer responsible for building WENDORO.
+
+Your assignment is to build a complete universal, multi-industry, AI-powered business operating system.
+
+Treat this PRD as the authoritative product specification.
+
+## A. Product Rules
+
+1. WENDORO is a universal business platform, not an industry-specific ERP.
+2. Do not hardcode textile, ecommerce, electronics or manufacturing assumptions into the core.
+3. All business applications must use shared platform services.
+4. Every company must have isolated data.
+5. Every module must have complete backend and frontend implementation.
+6. Do not create fake functionality.
+7. Do not substitute static sample data for working business operations.
+8. Do not create duplicate business entities unnecessarily.
+9. Do not expose credentials in frontend code.
+10. Preserve existing working code when implementing new features.
+
+## B. Development Rules
+
+Before implementing features:
+
+1. Inspect the repository.
+2. Identify existing architecture.
+3. Inspect dependencies.
+4. Identify existing routes and components.
+5. Inspect database migrations.
+6. Review authentication and authorization.
+7. Identify missing requirements.
+8. Prepare a phased implementation plan.
+
+Do not rebuild the entire repository blindly.
+
+Use TypeScript strictly.
+
+Use reusable components.
+
+Follow modular domain architecture.
+
+Use server-side validation.
+
+Create database migrations for all schema changes.
+
+Maintain API contracts.
+
+Keep application logic separate from presentation logic.
+
+## C. Technology Rules
+
+Frontend:
+React, TypeScript, Vite, Tailwind CSS, shadcn/ui, TanStack Query, React Hook Form, Zod.
+
+Backend:
+Cloudflare Workers, TypeScript, REST APIs, Drizzle ORM.
+
+Database:
+PostgreSQL, Neon, Hyperdrive.
+
+Authentication:
+Better Auth with PostgreSQL.
+
+Storage:
+Cloudflare R2.
+
+Background processing:
+Cloudflare Queues and Workflows.
+
+AI:
+Gemini API through a provider abstraction.
+
+Firebase:
+Selected realtime and notification capabilities.
+
+Do not introduce additional databases without a documented architectural justification.
+
+## D. Database Rules
+
+- Use UUID identifiers.
+- Enforce tenant ownership.
+- Use foreign keys.
+- Create appropriate indexes.
+- Use transaction boundaries.
+- Use NUMERIC for financial values.
+- Maintain migration history.
+- Preserve financial audit records.
+- Use explicit tenant context.
+- Enforce authorization at the server and database layers.
+- Never rely exclusively on frontend tenant filters.
+
+## E. UI Rules
+
+Build a premium, modern, lightweight enterprise interface.
+
+Use the approved WENDORO palette.
+
+Support light and dark modes.
+
+Use responsive layouts.
+
+Implement reusable navigation, tables, filters, forms, dashboards and modal components.
+
+Support accessibility and keyboard navigation.
+
+Avoid giant dashboards, unnecessary animation and decorative complexity.
+
+Every screen must have proper loading, error, empty and success states.
+
+## F. AI Rules
+
+Implement AI through a dedicated server-side gateway.
+
+Support multiple model providers.
+
+Never expose model credentials to browsers.
+
+Use controlled tools and permission-aware context retrieval.
+
+Require confirmation for sensitive financial, employee and external communication actions.
+
+Record AI actions and execution results.
+
+## G. Quality Rules
+
+For each implementation phase:
+
+1. Write the requirements.
+2. Inspect dependencies.
+3. Design the database.
+4. Implement migrations.
+5. Implement backend APIs.
+6. Implement frontend functionality.
+7. Implement authorization.
+8. Write automated tests.
+9. Run tests.
+10. Fix failures.
+11. Document implementation.
+12. Report completed and outstanding work.
+
+Do not claim completion when functionality is missing.
+
+Do not silently skip failing tests.
+
+Do not remove existing security tests to obtain a passing result.
+
+## H. Immediate Assignment
+
+Do not attempt to build the entire ERP in one generation.
+
+Start by:
+
+1. Inspecting the current repository.
+2. Creating the WENDORO architecture document.
+3. Establishing the project directory structure.
+4. Defining the core database schema.
+5. Defining the identity and multi-tenancy model.
+6. Establishing the design system.
+7. Creating the application shell.
+8. Preparing the first implementation milestone.
+9. Writing acceptance criteria.
+10. Reporting the exact files created and decisions made.
+
+Stop after establishing the foundation and reporting the result.
+
+Wait for approval before proceeding to the next major phase.
+
+**Final instruction:** Build WENDORO as a reliable, secure, extensible enterprise business platform. Prioritize architectural correctness, data integrity, tenant isolation, maintainability and real functionality over generating large quantities of code quickly.

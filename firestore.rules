@@ -1,0 +1,279 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Shared hardened primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isWorkspaceOwner(companyId) {
+      return isVerifiedUser()
+        && exists(/databases/$(database)/documents/workspaces/$(companyId))
+        && get(/databases/$(database)/documents/workspaces/$(companyId)).data.ownerUid == request.auth.uid;
+    }
+
+    function isWorkspaceMember(companyId) {
+      return isVerifiedUser()
+        && exists(/databases/$(database)/documents/workspaces/$(companyId)/members/$(request.auth.uid));
+    }
+
+    // Validation Helpers (Anti-Update-Gap Blueprints)
+    function isValidUserPrivateProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'fullName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'fullName', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == userId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspace(data, companyId) {
+      return data.keys().hasAll(['companyId', 'ownerUid', 'companyName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['companyId', 'ownerUid', 'companyName', 'createdAt', 'updatedAt'])
+        && data.companyId is string && data.companyId.size() >= 1 && data.companyId.size() <= 128
+        && data.companyId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.companyId == companyId
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.companyName is string && data.companyName.size() >= 1 && data.companyName.size() <= 120
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceMember(data, companyId, memberId) {
+      return data.keys().hasAll(['uid', 'companyId', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'companyId', 'role', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == memberId
+        && data.companyId is string && data.companyId.size() >= 1 && data.companyId.size() <= 128
+        && data.companyId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.companyId == companyId
+        && data.role is string && data.role.size() >= 1 && data.role.size() <= 32
+        && data.role in ['owner', 'member', 'viewer']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspacePresence(data, companyId, userId) {
+      return data.keys().hasAll(['uid', 'companyId', 'displayName', 'status', 'activeRoute', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'companyId', 'displayName', 'status', 'activeRoute', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == userId
+        && data.companyId is string && data.companyId.size() >= 1 && data.companyId.size() <= 128
+        && data.companyId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.companyId == companyId
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.status is string && data.status.size() >= 1 && data.status.size() <= 16
+        && data.status in ['online', 'away']
+        && data.activeRoute is string && data.activeRoute.size() >= 1 && data.activeRoute.size() <= 80
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceNotification(data, companyId) {
+      return data.keys().hasAll(['companyId', 'recipientUid', 'category', 'title', 'body', 'isRead', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['companyId', 'recipientUid', 'category', 'title', 'body', 'isRead', 'createdAt', 'updatedAt'])
+        && data.companyId is string && data.companyId.size() >= 1 && data.companyId.size() <= 128
+        && data.companyId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.companyId == companyId
+        && data.recipientUid is string && data.recipientUid.size() >= 1 && data.recipientUid.size() <= 128
+        && data.recipientUid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 32
+        && data.category in ['architecture', 'security', 'governance', 'workflow']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.body is string && data.body.size() >= 1 && data.body.size() <= 500
+        && data.isRead is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // 1. User Private PII Profile
+    match /users/{userId}/private/profile {
+      allow get: if isValidId(userId)
+        && isVerifiedUser()
+        && request.auth.uid == userId;
+
+      allow create: if isValidId(userId)
+        && isVerifiedUser()
+        && request.auth.uid == userId
+        && isValidUserPrivateProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(userId)
+        && isVerifiedUser()
+        && isValidUserPrivateProfile(incoming(), userId)
+        && request.auth.uid == userId
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'fullName', 'updatedAt']);
+
+      allow delete: if false;
+    }
+
+    // 2. Company Realtime Workspaces
+    match /workspaces/{companyId} {
+      allow get: if isValidId(companyId)
+        && isVerifiedUser()
+        && (resource == null || resource.data.ownerUid == request.auth.uid || isWorkspaceMember(companyId));
+
+      allow list: if isVerifiedUser()
+        && resource.data.ownerUid == request.auth.uid;
+
+      allow create: if isValidId(companyId)
+        && isVerifiedUser()
+        && isValidWorkspace(incoming(), companyId)
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(companyId)
+        && isVerifiedUser()
+        && isValidWorkspace(incoming(), companyId)
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().companyId == existing().companyId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['companyName', 'updatedAt']);
+
+      allow delete: if false;
+
+      // 2a. Workspace Membership Gate
+      match /members/{memberId} {
+        allow get: if isValidId(companyId)
+          && isValidId(memberId)
+          && isVerifiedUser()
+          && (request.auth.uid == memberId || isWorkspaceOwner(companyId));
+
+        allow list: if isVerifiedUser()
+          && resource.data.uid == request.auth.uid;
+
+        allow create: if isValidId(companyId)
+          && isValidId(memberId)
+          && isVerifiedUser()
+          && isValidWorkspaceMember(incoming(), companyId, memberId)
+          && exists(/databases/$(database)/documents/workspaces/$(companyId))
+          && (
+            isWorkspaceOwner(companyId)
+            || (request.auth.uid == memberId && incoming().role == 'member' && get(/databases/$(database)/documents/workspaces/$(companyId)).data.ownerUid == request.auth.uid)
+          )
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+
+        allow update: if isValidId(companyId)
+          && isValidId(memberId)
+          && isVerifiedUser()
+          && isValidWorkspaceMember(incoming(), companyId, memberId)
+          && isWorkspaceOwner(companyId)
+          && incoming().uid == existing().uid
+          && incoming().companyId == existing().companyId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'updatedAt']);
+
+        allow delete: if isValidId(companyId)
+          && isValidId(memberId)
+          && isWorkspaceOwner(companyId);
+      }
+
+      // 2b. Realtime Presence Subcollection (Master Gate: Member or Owner)
+      match /presence/{userId} {
+        allow get: if isValidId(companyId)
+          && isValidId(userId)
+          && (isWorkspaceMember(companyId) || isWorkspaceOwner(companyId));
+
+        allow list: if isVerifiedUser()
+          && resource.data.uid == request.auth.uid;
+
+        allow create: if isValidId(companyId)
+          && isValidId(userId)
+          && isVerifiedUser()
+          && request.auth.uid == userId
+          && (isWorkspaceMember(companyId) || isWorkspaceOwner(companyId))
+          && isValidWorkspacePresence(incoming(), companyId, userId)
+          && incoming().updatedAt == request.time;
+
+        allow update: if isValidId(companyId)
+          && isValidId(userId)
+          && isVerifiedUser()
+          && isValidWorkspacePresence(incoming(), companyId, userId)
+          && request.auth.uid == userId
+          && (isWorkspaceMember(companyId) || isWorkspaceOwner(companyId))
+          && incoming().uid == existing().uid
+          && incoming().companyId == existing().companyId
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'status', 'activeRoute', 'updatedAt']);
+
+        allow delete: if isValidId(companyId)
+          && isValidId(userId)
+          && isVerifiedUser()
+          && request.auth.uid == userId;
+      }
+
+      // 2c. Workspace Notifications Subcollection
+      match /notifications/{notificationId} {
+        allow get: if isValidId(companyId)
+          && isValidId(notificationId)
+          && isVerifiedUser()
+          && resource.data.recipientUid == request.auth.uid;
+
+        allow list: if isVerifiedUser()
+          && resource.data.recipientUid == request.auth.uid;
+
+        allow create: if isValidId(companyId)
+          && isValidId(notificationId)
+          && isVerifiedUser()
+          && (isWorkspaceOwner(companyId) || isWorkspaceMember(companyId))
+          && isValidWorkspaceNotification(incoming(), companyId)
+          && incoming().recipientUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+
+        allow update: if isValidId(companyId)
+          && isValidId(notificationId)
+          && isVerifiedUser()
+          && isValidWorkspaceNotification(incoming(), companyId)
+          && existing().recipientUid == request.auth.uid
+          && incoming().recipientUid == existing().recipientUid
+          && incoming().companyId == existing().companyId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['isRead', 'updatedAt']);
+
+        allow delete: if isValidId(companyId)
+          && isValidId(notificationId)
+          && isVerifiedUser()
+          && resource.data.recipientUid == request.auth.uid;
+      }
+    }
+  }
+}

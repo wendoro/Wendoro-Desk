@@ -1,0 +1,6 @@
+{
+  "name": "WENDORO ERP",
+  "description": "Universal multi-industry, AI-powered business operating system combining ERP, CRM, HRMS, accounting, inventory, automation, and business intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

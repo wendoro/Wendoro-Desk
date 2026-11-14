@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wendoro-erp",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "enabled": true
+  }
+  // Configure bindings when provisioning Phase 1+ Cloudflare infrastructure:
+  // "hyperdrive": [
+  //   { "binding": "HYPERDRIVE", "id": "<YOUR_HYPERDRIVE_CONFIG_ID>" }
+  // ],
+  // "r2_buckets": [
+  //   { "binding": "DOCUMENTS_BUCKET", "bucket_name": "wendoro-documents" }
+  // ],
+  // "kv_namespaces": [
+  //   { "binding": "CONFIG_KV", "id": "<YOUR_KV_NAMESPACE_ID>" }
+  // ]
+}
