@@ -1,15 +1,22 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
+  AuditLogRecord,
   CatalogueItem,
+  ChartAccount,
   CrmContact,
   CrmStage,
   DocumentRecord,
   EmployeeRecord,
   ErpDatabaseState,
+  FiscalPeriod,
   IndustryOperationRecord,
+  InventoryLot,
+  JournalEntry,
   LedgerEntry,
   MarketingCampaign,
   OrderLineItem,
+  PaymentAllocation,
+  PayrollRun,
   ProjectTask,
   ProjectTaskStatus,
   PurchaseOrder,
@@ -17,67 +24,42 @@ import {
   SalesOrder,
   SalesStatus,
   StockMovement,
+  StockReservation,
   SupportTicket,
   TicketStatus,
 } from '@/src/core/store/erpTypes';
+import {
+  DraftJournalLine,
+  TrialBalanceRow,
+  computeTrialBalance,
+  createUuid,
+  ensureCompanyAccounts,
+  nowIso,
+  postJournalEntry,
+  reverseJournalEntry,
+  roundMoney,
+  setFiscalPeriodStatus,
+} from '@/src/core/engine/accountingEngine';
+import {
+  TransactionScope,
+  txAddCatalogueItem,
+  txAdjustStock,
+  txCreatePurchaseOrder,
+  txCreateSalesOrder,
+  txDispatchSalesOrder,
+  txExportCompanyBackup,
+  txImportCompanyBackup,
+  txReceivePurchaseOrder,
+  txRecordPurchasePayment,
+  txRecordSalesPayment,
+  txRunMonthlyPayroll,
+  txUpdateSalesStatus,
+} from '@/src/core/engine/erpTransactions';
+import {
+  PersistenceAdapterMode,
+  defaultDevStorageAdapter,
+} from '@/src/core/engine/storageAdapter';
 import { useTenant } from './TenantProvider';
-
-const ERP_STORAGE_KEY = 'wendoro.erp.data.v1';
-
-const EMPTY_ERP_STATE: ErpDatabaseState = {
-  catalogue: [],
-  contacts: [],
-  salesOrders: [],
-  purchaseOrders: [],
-  stockMovements: [],
-  ledgerEntries: [],
-  employees: [],
-  projectTasks: [],
-  supportTickets: [],
-  documents: [],
-  campaigns: [],
-  industryRecords: [],
-};
-
-function uid(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function loadErpState(): ErpDatabaseState {
-  if (typeof window === 'undefined') return EMPTY_ERP_STATE;
-  try {
-    const raw = window.localStorage.getItem(ERP_STORAGE_KEY);
-    if (!raw) return EMPTY_ERP_STATE;
-    const parsed = JSON.parse(raw) as Partial<ErpDatabaseState>;
-    return {
-      catalogue: Array.isArray(parsed.catalogue) ? parsed.catalogue : [],
-      contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
-      salesOrders: Array.isArray(parsed.salesOrders) ? parsed.salesOrders : [],
-      purchaseOrders: Array.isArray(parsed.purchaseOrders) ? parsed.purchaseOrders : [],
-      stockMovements: Array.isArray(parsed.stockMovements) ? parsed.stockMovements : [],
-      ledgerEntries: Array.isArray(parsed.ledgerEntries) ? parsed.ledgerEntries : [],
-      employees: Array.isArray(parsed.employees) ? parsed.employees : [],
-      projectTasks: Array.isArray(parsed.projectTasks) ? parsed.projectTasks : [],
-      supportTickets: Array.isArray(parsed.supportTickets) ? parsed.supportTickets : [],
-      documents: Array.isArray(parsed.documents) ? parsed.documents : [],
-      campaigns: Array.isArray(parsed.campaigns) ? parsed.campaigns : [],
-      industryRecords: Array.isArray(parsed.industryRecords) ? parsed.industryRecords : [],
-    };
-  } catch {
-    return EMPTY_ERP_STATE;
-  }
-}
 
 export interface ErpCompanyScopedData {
   catalogue: CatalogueItem[];
@@ -85,29 +67,49 @@ export interface ErpCompanyScopedData {
   salesOrders: SalesOrder[];
   purchaseOrders: PurchaseOrder[];
   stockMovements: StockMovement[];
+  inventoryLots: InventoryLot[];
+  stockReservations: StockReservation[];
+  accounts: ChartAccount[];
+  fiscalPeriods: FiscalPeriod[];
+  journals: JournalEntry[];
+  paymentAllocations: PaymentAllocation[];
   ledgerEntries: LedgerEntry[];
   employees: EmployeeRecord[];
+  payrollRuns: PayrollRun[];
   projectTasks: ProjectTask[];
   supportTickets: SupportTicket[];
   documents: DocumentRecord[];
   campaigns: MarketingCampaign[];
   industryRecords: IndustryOperationRecord[];
+  auditLogs: AuditLogRecord[];
 }
 
 interface ErpDataContextValue {
+  storageMode: PersistenceAdapterMode;
   data: ErpCompanyScopedData;
+  trialBalance: {
+    rows: TrialBalanceRow[];
+    totalDebits: number;
+    totalCredits: number;
+    isBalanced: boolean;
+  };
   metrics: {
     totalRevenue: number;
     totalExpenses: number;
     netIncome: number;
     openReceivables: number;
     openPayables: number;
+    inventoryAssetValue: number;
+    taxLiabilityNet: number;
     lowStockCount: number;
     openTasksCount: number;
     openTicketsCount: number;
   };
   addCatalogueItem: (
-    item: Omit<CatalogueItem, 'id' | 'companyId' | 'createdAt'>,
+    item: Omit<
+      CatalogueItem,
+      'id' | 'companyId' | 'reservedQty' | 'inventoryAssetValue' | 'version' | 'createdAt'
+    >,
   ) => CatalogueItem;
   deleteCatalogueItem: (id: string) => void;
   addContact: (contact: Omit<CrmContact, 'id' | 'companyId' | 'createdAt'>) => CrmContact;
@@ -122,8 +124,17 @@ interface ErpDataContextValue {
     status: SalesStatus;
     lines: Omit<OrderLineItem, 'id' | 'lineTotal'>[];
     notes: string;
+    isImmediatePosSale?: boolean;
   }) => SalesOrder;
   updateSalesStatus: (id: string, status: SalesStatus) => void;
+  dispatchSalesOrder: (orderId: string, dispatchDate?: string) => SalesOrder;
+  recordSalesPayment: (input: {
+    orderId: string;
+    amount: number;
+    paymentDate: string;
+    method?: PaymentAllocation['method'];
+    reference?: string;
+  }) => PaymentAllocation;
   deleteSalesOrder: (id: string) => void;
   createPurchaseOrder: (input: {
     vendorId?: string;
@@ -134,24 +145,48 @@ interface ErpDataContextValue {
     lines: Omit<OrderLineItem, 'id' | 'lineTotal'>[];
     notes: string;
   }) => PurchaseOrder;
-  updatePurchaseStatus: (id: string, status: PurchaseStatus) => void;
+  receivePurchaseOrder: (input: {
+    orderId: string;
+    receiptDate?: string;
+    batchNumber?: string;
+    serialNumbers?: string[];
+    expiryDate?: string;
+  }) => PurchaseOrder;
+  recordPurchasePayment: (input: {
+    orderId: string;
+    amount: number;
+    paymentDate: string;
+    method?: PaymentAllocation['method'];
+    reference?: string;
+  }) => PaymentAllocation;
   deletePurchaseOrder: (id: string) => void;
   adjustStock: (input: {
     itemId: string;
     direction: 'in' | 'out' | 'adjustment';
     quantity: number;
     reason: string;
-  }) => void;
-  addLedgerEntry: (
-    entry: Omit<LedgerEntry, 'id' | 'companyId' | 'branchId' | 'createdAt' | 'sourceModule'>,
-  ) => LedgerEntry;
-  deleteLedgerEntry: (id: string) => void;
+    expectedVersion?: number;
+    batchNumber?: string;
+    serialNumbers?: string[];
+  }) => CatalogueItem;
+  postBalancedJournal: (input: {
+    date: string;
+    reference: string;
+    description: string;
+    lines: DraftJournalLine[];
+  }) => JournalEntry;
+  reverseJournal: (journalId: string, reason: string) => JournalEntry;
+  toggleFiscalPeriod: (periodCode: string, status: 'open' | 'closed') => void;
   addEmployee: (
     emp: Omit<EmployeeRecord, 'id' | 'companyId' | 'branchId' | 'createdAt'>,
   ) => EmployeeRecord;
   toggleEmployeeStatus: (id: string) => void;
   deleteEmployee: (id: string) => void;
-  runMonthlyPayroll: () => number;
+  runMonthlyPayroll: (input?: {
+    periodKey?: string;
+    paymentDate?: string;
+    disburseCashImmediately?: boolean;
+  }) => PayrollRun;
   addProjectTask: (task: Omit<ProjectTask, 'id' | 'companyId' | 'createdAt'>) => ProjectTask;
   updateProjectTaskStatus: (id: string, status: ProjectTaskStatus) => void;
   deleteProjectTask: (id: string) => void;
@@ -182,16 +217,31 @@ interface ErpDataContextValue {
 const ErpDataContext = createContext<ErpDataContextValue | null>(null);
 
 export function ErpDataProvider({ children }: { children: React.ReactNode }) {
-  const { activeCompany, activeBranchId, pushNotification } = useTenant();
-  const [state, setState] = useState<ErpDatabaseState>(() => loadErpState());
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ERP_STORAGE_KEY, JSON.stringify(state));
-    }
-  }, [state]);
+  const { principal, activeCompany, activeBranchId, pushNotification } = useTenant();
+  const [state, setState] = useState<ErpDatabaseState>(() => {
+    const loaded = defaultDevStorageAdapter.loadState();
+    return ensureCompanyAccounts(loaded, activeCompany.companyId).nextState;
+  });
 
   const companyId = activeCompany.companyId;
+
+  useEffect(() => {
+    setState((prev) => ensureCompanyAccounts(prev, companyId).nextState);
+  }, [companyId]);
+
+  useEffect(() => {
+    defaultDevStorageAdapter.saveState(state);
+  }, [state]);
+
+  const scope: TransactionScope = useMemo(
+    () => ({
+      companyId,
+      branchId: activeBranchId,
+      actorUserId: principal.userId,
+      actorRole: activeCompany.roleSlug,
+    }),
+    [companyId, activeBranchId, principal.userId, activeCompany.roleSlug],
+  );
 
   const data: ErpCompanyScopedData = useMemo(
     () => ({
@@ -200,32 +250,51 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       salesOrders: state.salesOrders.filter((r) => r.companyId === companyId),
       purchaseOrders: state.purchaseOrders.filter((r) => r.companyId === companyId),
       stockMovements: state.stockMovements.filter((r) => r.companyId === companyId),
+      inventoryLots: state.inventoryLots.filter((r) => r.companyId === companyId),
+      stockReservations: state.stockReservations.filter((r) => r.companyId === companyId),
+      accounts: state.accounts.filter((r) => r.companyId === companyId),
+      fiscalPeriods: state.fiscalPeriods.filter((r) => r.companyId === companyId),
+      journals: state.journals.filter((r) => r.companyId === companyId),
+      paymentAllocations: state.paymentAllocations.filter((r) => r.companyId === companyId),
       ledgerEntries: state.ledgerEntries.filter((r) => r.companyId === companyId),
       employees: state.employees.filter((r) => r.companyId === companyId),
+      payrollRuns: state.payrollRuns.filter((r) => r.companyId === companyId),
       projectTasks: state.projectTasks.filter((r) => r.companyId === companyId),
       supportTickets: state.supportTickets.filter((r) => r.companyId === companyId),
       documents: state.documents.filter((r) => r.companyId === companyId),
       campaigns: state.campaigns.filter((r) => r.companyId === companyId),
       industryRecords: state.industryRecords.filter((r) => r.companyId === companyId),
+      auditLogs: state.auditLogs.filter((r) => r.companyId === companyId),
     }),
     [state, companyId],
   );
 
+  const trialBalance = useMemo(
+    () => computeTrialBalance(state, companyId),
+    [state, companyId],
+  );
+
   const metrics = useMemo(() => {
-    const totalRevenue = data.ledgerEntries
-      .filter((e) => e.entryType === 'income')
-      .reduce((sum, e) => sum + e.amount, 0);
-    const totalExpenses = data.ledgerEntries
-      .filter((e) => e.entryType === 'expense')
-      .reduce((sum, e) => sum + e.amount, 0);
-    const openReceivables = data.salesOrders
-      .filter((o) => o.documentType === 'invoice' && o.status === 'sent')
-      .reduce((sum, o) => sum + o.grandTotal, 0);
-    const openPayables = data.purchaseOrders
-      .filter((o) => o.status === 'ordered')
-      .reduce((sum, o) => sum + o.grandTotal, 0);
+    const byCode = new Map(trialBalance.rows.map((r) => [r.code, r.netBalance]));
+    const totalRevenue = roundMoney(
+      trialBalance.rows
+        .filter((r) => r.category === 'revenue')
+        .reduce((s, r) => s + r.netBalance, 0),
+    );
+    const totalExpenses = roundMoney(
+      trialBalance.rows
+        .filter((r) => r.category === 'expense')
+        .reduce((s, r) => s + r.netBalance, 0),
+    );
+    const openReceivables = roundMoney(Math.max(0, byCode.get('1200') ?? 0));
+    const openPayables = roundMoney(Math.max(0, byCode.get('2100') ?? 0));
+    const inventoryAssetValue = roundMoney(Math.max(0, byCode.get('1300') ?? 0));
+    const outputTax = byCode.get('2200') ?? 0;
+    const inputTax = byCode.get('1400') ?? 0;
+    const taxLiabilityNet = roundMoney(outputTax - inputTax);
+
     const lowStockCount = data.catalogue.filter(
-      (i) => i.trackStock && i.stockOnHand <= i.reorderLevel,
+      (i) => i.trackStock && i.stockOnHand - i.reservedQty <= i.reorderLevel,
     ).length;
     const openTasksCount = data.projectTasks.filter((t) => t.status !== 'done').length;
     const openTicketsCount = data.supportTickets.filter(
@@ -235,63 +304,34 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     return {
       totalRevenue,
       totalExpenses,
-      netIncome: totalRevenue - totalExpenses,
+      netIncome: roundMoney(totalRevenue - totalExpenses),
       openReceivables,
       openPayables,
+      inventoryAssetValue,
+      taxLiabilityNet,
       lowStockCount,
       openTasksCount,
       openTicketsCount,
     };
-  }, [data]);
+  }, [trialBalance, data]);
 
   const addCatalogueItem: ErpDataContextValue['addCatalogueItem'] = (input) => {
-    const created: CatalogueItem = {
-      ...input,
-      id: uid(),
-      companyId,
-      createdAt: nowIso(),
-    };
-    setState((prev) => {
-      const movements: StockMovement[] =
-        created.trackStock && created.stockOnHand > 0
-          ? [
-              {
-                id: uid(),
-                companyId,
-                branchId: activeBranchId,
-                itemId: created.id,
-                itemName: created.name,
-                sku: created.sku,
-                direction: 'in',
-                quantity: created.stockOnHand,
-                balanceAfter: created.stockOnHand,
-                reference: 'OPENING-STOCK',
-                reason: 'Initial opening stock balance',
-                createdAt: nowIso(),
-              },
-              ...prev.stockMovements,
-            ]
-          : prev.stockMovements;
-      return {
-        ...prev,
-        catalogue: [created, ...prev.catalogue],
-        stockMovements: movements,
-      };
-    });
-    return created;
+    const res = txAddCatalogueItem(state, scope, input);
+    setState(res.nextState);
+    return res.item;
   };
 
   const deleteCatalogueItem = (id: string) => {
     setState((prev) => ({
       ...prev,
-      catalogue: prev.catalogue.filter((i) => i.id !== id),
+      catalogue: prev.catalogue.filter((i) => !(i.id === id && i.companyId === companyId)),
     }));
   };
 
   const addContact: ErpDataContextValue['addContact'] = (input) => {
     const created: CrmContact = {
       ...input,
-      id: uid(),
+      id: createUuid(),
       companyId,
       createdAt: nowIso(),
     };
@@ -305,360 +345,152 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const updateContactStage = (id: string, stage: CrmStage) => {
     setState((prev) => ({
       ...prev,
-      contacts: prev.contacts.map((c) => (c.id === id ? { ...c, stage } : c)),
+      contacts: prev.contacts.map((c) =>
+        c.id === id && c.companyId === companyId ? { ...c, stage } : c,
+      ),
     }));
   };
 
   const deleteContact = (id: string) => {
     setState((prev) => ({
       ...prev,
-      contacts: prev.contacts.filter((c) => c.id !== id),
+      contacts: prev.contacts.filter((c) => !(c.id === id && c.companyId === companyId)),
     }));
-  };
-
-  const computeTotals = (rawLines: Omit<OrderLineItem, 'id' | 'lineTotal'>[]) => {
-    let subtotal = 0;
-    let taxTotal = 0;
-    const lines: OrderLineItem[] = rawLines.map((l) => {
-      const base = Number((l.quantity * l.unitPrice).toFixed(4));
-      const tax = Number(((base * l.taxRate) / 100).toFixed(4));
-      subtotal += base;
-      taxTotal += tax;
-      return {
-        ...l,
-        id: uid(),
-        lineTotal: Number((base + tax).toFixed(4)),
-      };
-    });
-    return {
-      lines,
-      subtotal: Number(subtotal.toFixed(4)),
-      taxTotal: Number(taxTotal.toFixed(4)),
-      grandTotal: Number((subtotal + taxTotal).toFixed(4)),
-    };
-  };
-
-  const applySalesSideEffects = (
-    prev: ErpDatabaseState,
-    order: SalesOrder,
-  ): ErpDatabaseState => {
-    let nextCatalogue = prev.catalogue;
-    let nextMovements = prev.stockMovements;
-    let nextLedger = prev.ledgerEntries;
-    let stockPosted = order.stockPosted;
-    let ledgerPosted = order.ledgerPosted;
-
-    const shouldDeductStock =
-      order.documentType === 'invoice' &&
-      (order.status === 'sent' || order.status === 'paid') &&
-      !order.stockPosted;
-
-    if (shouldDeductStock) {
-      nextCatalogue = prev.catalogue.map((item) => {
-        const matchedQty = order.lines
-          .filter((l) => l.itemId === item.id)
-          .reduce((s, l) => s + l.quantity, 0);
-        if (!item.trackStock || matchedQty <= 0) return item;
-        const nextQty = Math.max(0, item.stockOnHand - matchedQty);
-        nextMovements = [
-          {
-            id: uid(),
-            companyId,
-            branchId: activeBranchId,
-            itemId: item.id,
-            itemName: item.name,
-            sku: item.sku,
-            direction: 'out',
-            quantity: matchedQty,
-            balanceAfter: nextQty,
-            reference: order.documentNumber,
-            reason: `Dispatched via ${order.documentNumber} (${order.customerName})`,
-            createdAt: nowIso(),
-          },
-          ...nextMovements,
-        ];
-        return { ...item, stockOnHand: nextQty };
-      });
-      stockPosted = true;
-    }
-
-    const shouldPostLedger =
-      order.documentType === 'invoice' && order.status === 'paid' && !order.ledgerPosted;
-
-    if (shouldPostLedger) {
-      nextLedger = [
-        {
-          id: uid(),
-          companyId,
-          branchId: activeBranchId,
-          date: order.issueDate,
-          accountName: 'Sales Revenue',
-          entryType: 'income',
-          amount: order.grandTotal,
-          reference: order.documentNumber,
-          description: `Invoice payment from ${order.customerName}`,
-          sourceModule: 'sales',
-          createdAt: nowIso(),
-        },
-        ...nextLedger,
-      ];
-      ledgerPosted = true;
-    }
-
-    return {
-      ...prev,
-      catalogue: nextCatalogue,
-      stockMovements: nextMovements,
-      ledgerEntries: nextLedger,
-      salesOrders: prev.salesOrders.map((o) =>
-        o.id === order.id ? { ...order, stockPosted, ledgerPosted } : o,
-      ),
-    };
   };
 
   const createSalesOrder: ErpDataContextValue['createSalesOrder'] = (input) => {
-    const totals = computeTotals(input.lines);
-    const seq = data.salesOrders.length + 1;
-    const prefix = input.documentType === 'quote' ? 'QT' : 'INV';
-    const order: SalesOrder = {
-      id: uid(),
-      companyId,
-      branchId: activeBranchId,
-      documentNumber: `${prefix}-${String(seq).padStart(4, '0')}`,
-      documentType: input.documentType,
-      customerId: input.customerId,
-      customerName: input.customerName.trim(),
-      issueDate: input.issueDate,
-      dueDate: input.dueDate,
-      status: input.status,
-      lines: totals.lines,
-      subtotal: totals.subtotal,
-      taxTotal: totals.taxTotal,
-      grandTotal: totals.grandTotal,
-      notes: input.notes,
-      stockPosted: false,
-      ledgerPosted: false,
-      createdAt: nowIso(),
-    };
-
-    setState((prev) => {
-      const withOrder: ErpDatabaseState = {
-        ...prev,
-        salesOrders: [order, ...prev.salesOrders],
-      };
-      return applySalesSideEffects(withOrder, order);
-    });
-
+    const res = txCreateSalesOrder(state, scope, input);
+    setState(res.nextState);
     pushNotification({
       category: 'governance',
-      title: `${order.documentNumber} Created`,
-      body: `${order.customerName} · ${order.status.toUpperCase()}`,
+      title: `${res.order.documentNumber} Created`,
+      body: `${res.order.customerName} · ${res.order.status.toUpperCase()}`,
     });
-
-    return order;
+    return res.order;
   };
 
   const updateSalesStatus = (id: string, status: SalesStatus) => {
-    setState((prev) => {
-      const target = prev.salesOrders.find((o) => o.id === id);
-      if (!target) return prev;
-      const updated = { ...target, status };
-      return applySalesSideEffects(prev, updated);
+    const next = txUpdateSalesStatus(state, scope, id, status);
+    setState(next);
+  };
+
+  const dispatchSalesOrder: ErpDataContextValue['dispatchSalesOrder'] = (
+    orderId,
+    dispatchDate,
+  ) => {
+    const res = txDispatchSalesOrder(state, scope, { orderId, dispatchDate });
+    setState(res.nextState);
+    pushNotification({
+      category: 'governance',
+      title: `${res.order.documentNumber} Dispatched`,
+      body: `Delivery note ${res.order.dispatchRef} posted stock deduction & COGS.`,
     });
+    return res.order;
+  };
+
+  const recordSalesPayment: ErpDataContextValue['recordSalesPayment'] = (input) => {
+    const res = txRecordSalesPayment(state, scope, input);
+    setState(res.nextState);
+    return res.allocation;
   };
 
   const deleteSalesOrder = (id: string) => {
-    setState((prev) => ({
-      ...prev,
-      salesOrders: prev.salesOrders.filter((o) => o.id !== id),
-    }));
-  };
-
-  const applyPurchaseSideEffects = (
-    prev: ErpDatabaseState,
-    order: PurchaseOrder,
-  ): ErpDatabaseState => {
-    let nextCatalogue = prev.catalogue;
-    let nextMovements = prev.stockMovements;
-    let nextLedger = prev.ledgerEntries;
-    let stockPosted = order.stockPosted;
-    let ledgerPosted = order.ledgerPosted;
-
-    if (order.status === 'received' && !order.stockPosted) {
-      nextCatalogue = prev.catalogue.map((item) => {
-        const matchedQty = order.lines
-          .filter((l) => l.itemId === item.id)
-          .reduce((s, l) => s + l.quantity, 0);
-        if (!item.trackStock || matchedQty <= 0) return item;
-        const nextQty = item.stockOnHand + matchedQty;
-        nextMovements = [
-          {
-            id: uid(),
-            companyId,
-            branchId: activeBranchId,
-            itemId: item.id,
-            itemName: item.name,
-            sku: item.sku,
-            direction: 'in',
-            quantity: matchedQty,
-            balanceAfter: nextQty,
-            reference: order.documentNumber,
-            reason: `Goods received from ${order.vendorName}`,
-            createdAt: nowIso(),
-          },
-          ...nextMovements,
-        ];
-        return { ...item, stockOnHand: nextQty };
-      });
-      stockPosted = true;
-    }
-
-    if (order.status === 'received' && !order.ledgerPosted) {
-      nextLedger = [
-        {
-          id: uid(),
-          companyId,
-          branchId: activeBranchId,
-          date: order.orderDate,
-          accountName: 'Cost of Goods & Procurement',
-          entryType: 'expense',
-          amount: order.grandTotal,
-          reference: order.documentNumber,
-          description: `Purchase receipt from ${order.vendorName}`,
-          sourceModule: 'purchase',
-          createdAt: nowIso(),
-        },
-        ...nextLedger,
-      ];
-      ledgerPosted = true;
-    }
-
-    return {
-      ...prev,
-      catalogue: nextCatalogue,
-      stockMovements: nextMovements,
-      ledgerEntries: nextLedger,
-      purchaseOrders: prev.purchaseOrders.map((o) =>
-        o.id === order.id ? { ...order, stockPosted, ledgerPosted } : o,
-      ),
-    };
+    setState((prev) => {
+      const target = prev.salesOrders.find((o) => o.id === id && o.companyId === companyId);
+      if (target && (target.ledgerPosted || target.stockPosted)) {
+        throw new Error(
+          `Cannot delete ${target.documentNumber} after financial or stock posting. Cancel or reverse journal instead.`,
+        );
+      }
+      return {
+        ...prev,
+        salesOrders: prev.salesOrders.filter((o) => o.id !== id),
+      };
+    });
   };
 
   const createPurchaseOrder: ErpDataContextValue['createPurchaseOrder'] = (input) => {
-    const totals = computeTotals(input.lines);
-    const seq = data.purchaseOrders.length + 1;
-    const order: PurchaseOrder = {
-      id: uid(),
-      companyId,
-      branchId: activeBranchId,
-      documentNumber: `PO-${String(seq).padStart(4, '0')}`,
-      vendorId: input.vendorId,
-      vendorName: input.vendorName.trim(),
-      orderDate: input.orderDate,
-      expectedDate: input.expectedDate,
-      status: input.status,
-      lines: totals.lines,
-      subtotal: totals.subtotal,
-      taxTotal: totals.taxTotal,
-      grandTotal: totals.grandTotal,
-      notes: input.notes,
-      stockPosted: false,
-      ledgerPosted: false,
-      createdAt: nowIso(),
-    };
-
-    setState((prev) => {
-      const withOrder: ErpDatabaseState = {
-        ...prev,
-        purchaseOrders: [order, ...prev.purchaseOrders],
-      };
-      return applyPurchaseSideEffects(withOrder, order);
-    });
-
-    return order;
+    const res = txCreatePurchaseOrder(state, scope, input);
+    setState(res.nextState);
+    return res.order;
   };
 
-  const updatePurchaseStatus = (id: string, status: PurchaseStatus) => {
-    setState((prev) => {
-      const target = prev.purchaseOrders.find((o) => o.id === id);
-      if (!target) return prev;
-      return applyPurchaseSideEffects(prev, { ...target, status });
+  const receivePurchaseOrder: ErpDataContextValue['receivePurchaseOrder'] = (input) => {
+    const res = txReceivePurchaseOrder(state, scope, input);
+    setState(res.nextState);
+    pushNotification({
+      category: 'governance',
+      title: `${res.order.documentNumber} Received`,
+      body: `GRN ${res.order.receiptRef} updated inventory valuation & Accounts Payable.`,
     });
+    return res.order;
+  };
+
+  const recordPurchasePayment: ErpDataContextValue['recordPurchasePayment'] = (input) => {
+    const res = txRecordPurchasePayment(state, scope, input);
+    setState(res.nextState);
+    return res.allocation;
   };
 
   const deletePurchaseOrder = (id: string) => {
-    setState((prev) => ({
-      ...prev,
-      purchaseOrders: prev.purchaseOrders.filter((o) => o.id !== id),
-    }));
-  };
-
-  const adjustStock: ErpDataContextValue['adjustStock'] = ({
-    itemId,
-    direction,
-    quantity,
-    reason,
-  }) => {
     setState((prev) => {
-      const target = prev.catalogue.find((i) => i.id === itemId && i.companyId === companyId);
-      if (!target) return prev;
-      const nextBalance =
-        direction === 'in'
-          ? target.stockOnHand + quantity
-          : direction === 'out'
-            ? Math.max(0, target.stockOnHand - quantity)
-            : Math.max(0, quantity);
-      const movement: StockMovement = {
-        id: uid(),
-        companyId,
-        branchId: activeBranchId,
-        itemId: target.id,
-        itemName: target.name,
-        sku: target.sku,
-        direction,
-        quantity,
-        balanceAfter: nextBalance,
-        reference: `ADJ-${todayDate()}`,
-        reason: reason.trim() || 'Manual inventory adjustment',
-        createdAt: nowIso(),
-      };
+      const target = prev.purchaseOrders.find((o) => o.id === id && o.companyId === companyId);
+      if (target && (target.ledgerPosted || target.stockPosted)) {
+        throw new Error(
+          `Cannot delete ${target.documentNumber} after goods receipt. Reverse journal instead.`,
+        );
+      }
       return {
         ...prev,
-        catalogue: prev.catalogue.map((i) =>
-          i.id === itemId ? { ...i, stockOnHand: nextBalance } : i,
-        ),
-        stockMovements: [movement, ...prev.stockMovements],
+        purchaseOrders: prev.purchaseOrders.filter((o) => o.id !== id),
       };
     });
   };
 
-  const addLedgerEntry: ErpDataContextValue['addLedgerEntry'] = (input) => {
-    const created: LedgerEntry = {
-      ...input,
-      id: uid(),
-      companyId,
-      branchId: activeBranchId,
-      sourceModule: 'manual',
-      createdAt: nowIso(),
-    };
-    setState((prev) => ({
-      ...prev,
-      ledgerEntries: [created, ...prev.ledgerEntries],
-    }));
-    return created;
+  const adjustStock: ErpDataContextValue['adjustStock'] = (input) => {
+    const res = txAdjustStock(state, scope, input);
+    setState(res.nextState);
+    return res.item;
   };
 
-  const deleteLedgerEntry = (id: string) => {
-    setState((prev) => ({
-      ...prev,
-      ledgerEntries: prev.ledgerEntries.filter((e) => e.id !== id),
-    }));
+  const postBalancedJournal: ErpDataContextValue['postBalancedJournal'] = (input) => {
+    const res = postJournalEntry(state, {
+      companyId,
+      branchId: activeBranchId,
+      date: input.date,
+      reference: input.reference.trim() || `MAN-${Date.now().toString().slice(-4)}`,
+      description: input.description.trim() || 'Manual double-entry journal',
+      sourceModule: 'manual',
+      idempotencyKey: `manual:${companyId}:${createUuid()}`,
+      lines: input.lines,
+    });
+    setState(res.nextState);
+    return res.journal;
+  };
+
+  const reverseJournal: ErpDataContextValue['reverseJournal'] = (journalId, reason) => {
+    const res = reverseJournalEntry(state, {
+      companyId,
+      branchId: activeBranchId,
+      journalId,
+      reversalDate: new Date().toISOString().slice(0, 10),
+      reason: reason.trim() || 'Operator reversal',
+    });
+    setState(res.nextState);
+    return res.reversalJournal;
+  };
+
+  const toggleFiscalPeriod: ErpDataContextValue['toggleFiscalPeriod'] = (
+    periodCode,
+    status,
+  ) => {
+    setState((prev) => setFiscalPeriodStatus(prev, companyId, periodCode, status));
   };
 
   const addEmployee: ErpDataContextValue['addEmployee'] = (input) => {
     const created: EmployeeRecord = {
       ...input,
-      id: uid(),
+      id: createUuid(),
       companyId,
       branchId: activeBranchId,
       createdAt: nowIso(),
@@ -674,7 +506,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({
       ...prev,
       employees: prev.employees.map((e) =>
-        e.id === id
+        e.id === id && e.companyId === companyId
           ? { ...e, status: e.status === 'active' ? 'on_leave' : 'active' }
           : e,
       ),
@@ -684,45 +516,25 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const deleteEmployee = (id: string) => {
     setState((prev) => ({
       ...prev,
-      employees: prev.employees.filter((e) => e.id !== id),
+      employees: prev.employees.filter((e) => !(e.id === id && e.companyId === companyId)),
     }));
   };
 
-  const runMonthlyPayroll = (): number => {
-    const activeEmployees = data.employees.filter((e) => e.status === 'active');
-    const totalPayroll = activeEmployees.reduce((sum, e) => sum + e.monthlySalary, 0);
-    if (totalPayroll <= 0) return 0;
-
-    const monthTag = todayDate().slice(0, 7);
-    const entry: LedgerEntry = {
-      id: uid(),
-      companyId,
-      branchId: activeBranchId,
-      date: todayDate(),
-      accountName: 'Salaries & Payroll Expense',
-      entryType: 'expense',
-      amount: totalPayroll,
-      reference: `PAYROLL-${monthTag}`,
-      description: `Monthly payroll run for ${activeEmployees.length} active employees`,
-      sourceModule: 'payroll',
-      createdAt: nowIso(),
-    };
-    setState((prev) => ({
-      ...prev,
-      ledgerEntries: [entry, ...prev.ledgerEntries],
-    }));
+  const runMonthlyPayroll: ErpDataContextValue['runMonthlyPayroll'] = (input) => {
+    const res = txRunMonthlyPayroll(state, scope, input);
+    setState(res.nextState);
     pushNotification({
       category: 'governance',
-      title: `Payroll Posted (${monthTag})`,
-      body: `Disbursed payroll for ${activeEmployees.length} employees into Accounting Ledger.`,
+      title: `Payroll Posted (${res.payrollRun.periodKey})`,
+      body: `Posted balanced payroll journal for ${res.payrollRun.employeeCount} active employees.`,
     });
-    return totalPayroll;
+    return res.payrollRun;
   };
 
   const addProjectTask: ErpDataContextValue['addProjectTask'] = (input) => {
     const created: ProjectTask = {
       ...input,
-      id: uid(),
+      id: createUuid(),
       companyId,
       createdAt: nowIso(),
     };
@@ -736,14 +548,16 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const updateProjectTaskStatus = (id: string, status: ProjectTaskStatus) => {
     setState((prev) => ({
       ...prev,
-      projectTasks: prev.projectTasks.map((t) => (t.id === id ? { ...t, status } : t)),
+      projectTasks: prev.projectTasks.map((t) =>
+        t.id === id && t.companyId === companyId ? { ...t, status } : t,
+      ),
     }));
   };
 
   const deleteProjectTask = (id: string) => {
     setState((prev) => ({
       ...prev,
-      projectTasks: prev.projectTasks.filter((t) => t.id !== id),
+      projectTasks: prev.projectTasks.filter((t) => !(t.id === id && t.companyId === companyId)),
     }));
   };
 
@@ -751,7 +565,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     const seq = data.supportTickets.length + 1;
     const created: SupportTicket = {
       ...input,
-      id: uid(),
+      id: createUuid(),
       companyId,
       ticketNumber: `TKT-${String(seq).padStart(4, '0')}`,
       createdAt: nowIso(),
@@ -767,7 +581,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({
       ...prev,
       supportTickets: prev.supportTickets.map((t) =>
-        t.id === id ? { ...t, status } : t,
+        t.id === id && t.companyId === companyId ? { ...t, status } : t,
       ),
     }));
   };
@@ -775,14 +589,14 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const deleteSupportTicket = (id: string) => {
     setState((prev) => ({
       ...prev,
-      supportTickets: prev.supportTickets.filter((t) => t.id !== id),
+      supportTickets: prev.supportTickets.filter((t) => !(t.id === id && t.companyId === companyId)),
     }));
   };
 
   const addDocument: ErpDataContextValue['addDocument'] = (input) => {
     const created: DocumentRecord = {
       ...input,
-      id: uid(),
+      id: createUuid(),
       companyId,
       createdAt: nowIso(),
     };
@@ -796,14 +610,14 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const deleteDocument = (id: string) => {
     setState((prev) => ({
       ...prev,
-      documents: prev.documents.filter((d) => d.id !== id),
+      documents: prev.documents.filter((d) => !(d.id === id && d.companyId === companyId)),
     }));
   };
 
   const addCampaign: ErpDataContextValue['addCampaign'] = (input) => {
     const created: MarketingCampaign = {
       ...input,
-      id: uid(),
+      id: createUuid(),
       companyId,
       createdAt: nowIso(),
     };
@@ -817,14 +631,14 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const deleteCampaign = (id: string) => {
     setState((prev) => ({
       ...prev,
-      campaigns: prev.campaigns.filter((c) => c.id !== id),
+      campaigns: prev.campaigns.filter((c) => !(c.id === id && c.companyId === companyId)),
     }));
   };
 
   const addIndustryRecord: ErpDataContextValue['addIndustryRecord'] = (input) => {
     const created: IndustryOperationRecord = {
       ...input,
-      id: uid(),
+      id: createUuid(),
       companyId,
       createdAt: nowIso(),
     };
@@ -842,7 +656,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({
       ...prev,
       industryRecords: prev.industryRecords.map((r) =>
-        r.id === id ? { ...r, status } : r,
+        r.id === id && r.companyId === companyId ? { ...r, status } : r,
       ),
     }));
   };
@@ -850,100 +664,58 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const deleteIndustryRecord = (id: string) => {
     setState((prev) => ({
       ...prev,
-      industryRecords: prev.industryRecords.filter((r) => r.id !== id),
+      industryRecords: prev.industryRecords.filter((r) => !(r.id === id && r.companyId === companyId)),
     }));
   };
 
-  const exportCompanyBackupJson = () => {
-    return JSON.stringify(
-      {
-        exportedAt: nowIso(),
-        companyId,
-        companyCode: activeCompany.companyCode,
-        companyName: activeCompany.companyName,
-        records: data,
-      },
-      null,
-      2,
-    );
-  };
+  const exportCompanyBackupJson = () =>
+    txExportCompanyBackup(state, {
+      companyId,
+      companyCode: activeCompany.companyCode,
+      companyName: activeCompany.companyName,
+    });
 
   const importCompanyBackupJson = (jsonText: string) => {
-    const parsed = JSON.parse(jsonText) as { records?: Partial<ErpCompanyScopedData> };
-    const r = parsed.records;
-    if (!r || typeof r !== 'object') {
-      throw new Error('Invalid WENDORO backup JSON format.');
-    }
-    const stamp = <T extends { companyId: string }>(arr: T[] | undefined): T[] =>
-      Array.isArray(arr) ? arr.map((item) => ({ ...item, companyId })) : [];
-
-    const imported = {
-      catalogue: stamp(r.catalogue),
-      contacts: stamp(r.contacts),
-      salesOrders: stamp(r.salesOrders),
-      purchaseOrders: stamp(r.purchaseOrders),
-      stockMovements: stamp(r.stockMovements),
-      ledgerEntries: stamp(r.ledgerEntries),
-      employees: stamp(r.employees),
-      projectTasks: stamp(r.projectTasks),
-      supportTickets: stamp(r.supportTickets),
-      documents: stamp(r.documents),
-      campaigns: stamp(r.campaigns),
-      industryRecords: stamp(r.industryRecords),
-    };
-
-    const importedCount =
-      imported.catalogue.length +
-      imported.contacts.length +
-      imported.salesOrders.length +
-      imported.purchaseOrders.length +
-      imported.ledgerEntries.length +
-      imported.employees.length +
-      imported.projectTasks.length +
-      imported.supportTickets.length +
-      imported.documents.length +
-      imported.campaigns.length +
-      imported.industryRecords.length;
-
-    setState((prev) => ({
-      catalogue: [...imported.catalogue, ...prev.catalogue.filter((x) => x.companyId !== companyId)],
-      contacts: [...imported.contacts, ...prev.contacts.filter((x) => x.companyId !== companyId)],
-      salesOrders: [...imported.salesOrders, ...prev.salesOrders.filter((x) => x.companyId !== companyId)],
-      purchaseOrders: [...imported.purchaseOrders, ...prev.purchaseOrders.filter((x) => x.companyId !== companyId)],
-      stockMovements: [...imported.stockMovements, ...prev.stockMovements.filter((x) => x.companyId !== companyId)],
-      ledgerEntries: [...imported.ledgerEntries, ...prev.ledgerEntries.filter((x) => x.companyId !== companyId)],
-      employees: [...imported.employees, ...prev.employees.filter((x) => x.companyId !== companyId)],
-      projectTasks: [...imported.projectTasks, ...prev.projectTasks.filter((x) => x.companyId !== companyId)],
-      supportTickets: [...imported.supportTickets, ...prev.supportTickets.filter((x) => x.companyId !== companyId)],
-      documents: [...imported.documents, ...prev.documents.filter((x) => x.companyId !== companyId)],
-      campaigns: [...imported.campaigns, ...prev.campaigns.filter((x) => x.companyId !== companyId)],
-      industryRecords: [...imported.industryRecords, ...prev.industryRecords.filter((x) => x.companyId !== companyId)],
-    }));
-
-    return { importedCount };
+    const res = txImportCompanyBackup(state, scope, jsonText);
+    setState(res.nextState);
+    return { importedCount: res.importedCount };
   };
 
   const clearActiveCompanyData = () => {
-    setState((prev) => ({
-      catalogue: prev.catalogue.filter((x) => x.companyId !== companyId),
-      contacts: prev.contacts.filter((x) => x.companyId !== companyId),
-      salesOrders: prev.salesOrders.filter((x) => x.companyId !== companyId),
-      purchaseOrders: prev.purchaseOrders.filter((x) => x.companyId !== companyId),
-      stockMovements: prev.stockMovements.filter((x) => x.companyId !== companyId),
-      ledgerEntries: prev.ledgerEntries.filter((x) => x.companyId !== companyId),
-      employees: prev.employees.filter((x) => x.companyId !== companyId),
-      projectTasks: prev.projectTasks.filter((x) => x.companyId !== companyId),
-      supportTickets: prev.supportTickets.filter((x) => x.companyId !== companyId),
-      documents: prev.documents.filter((x) => x.companyId !== companyId),
-      campaigns: prev.campaigns.filter((x) => x.companyId !== companyId),
-      industryRecords: prev.industryRecords.filter((x) => x.companyId !== companyId),
-    }));
+    setState((prev) => {
+      const cleaned: ErpDatabaseState = {
+        ...prev,
+        catalogue: prev.catalogue.filter((x) => x.companyId !== companyId),
+        contacts: prev.contacts.filter((x) => x.companyId !== companyId),
+        salesOrders: prev.salesOrders.filter((x) => x.companyId !== companyId),
+        purchaseOrders: prev.purchaseOrders.filter((x) => x.companyId !== companyId),
+        stockMovements: prev.stockMovements.filter((x) => x.companyId !== companyId),
+        inventoryLots: prev.inventoryLots.filter((x) => x.companyId !== companyId),
+        stockReservations: prev.stockReservations.filter((x) => x.companyId !== companyId),
+        accounts: prev.accounts.filter((x) => x.companyId !== companyId),
+        fiscalPeriods: prev.fiscalPeriods.filter((x) => x.companyId !== companyId),
+        journals: prev.journals.filter((x) => x.companyId !== companyId),
+        paymentAllocations: prev.paymentAllocations.filter((x) => x.companyId !== companyId),
+        ledgerEntries: prev.ledgerEntries.filter((x) => x.companyId !== companyId),
+        employees: prev.employees.filter((x) => x.companyId !== companyId),
+        payrollRuns: prev.payrollRuns.filter((x) => x.companyId !== companyId),
+        projectTasks: prev.projectTasks.filter((x) => x.companyId !== companyId),
+        supportTickets: prev.supportTickets.filter((x) => x.companyId !== companyId),
+        documents: prev.documents.filter((x) => x.companyId !== companyId),
+        campaigns: prev.campaigns.filter((x) => x.companyId !== companyId),
+        industryRecords: prev.industryRecords.filter((x) => x.companyId !== companyId),
+        auditLogs: prev.auditLogs.filter((x) => x.companyId !== companyId),
+      };
+      return ensureCompanyAccounts(cleaned, companyId).nextState;
+    });
   };
 
   return (
     <ErpDataContext.Provider
       value={{
+        storageMode: defaultDevStorageAdapter.mode,
         data,
+        trialBalance,
         metrics,
         addCatalogueItem,
         deleteCatalogueItem,
@@ -952,13 +724,17 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
         deleteContact,
         createSalesOrder,
         updateSalesStatus,
+        dispatchSalesOrder,
+        recordSalesPayment,
         deleteSalesOrder,
         createPurchaseOrder,
-        updatePurchaseStatus,
+        receivePurchaseOrder,
+        recordPurchasePayment,
         deletePurchaseOrder,
         adjustStock,
-        addLedgerEntry,
-        deleteLedgerEntry,
+        postBalancedJournal,
+        reverseJournal,
+        toggleFiscalPeriod,
         addEmployee,
         toggleEmployeeStatus,
         deleteEmployee,

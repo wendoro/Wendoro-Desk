@@ -46,7 +46,7 @@ const PLACEHOLDER_COMPANY_ID = '00000000-0000-4000-8000-000000000001';
 
 const INITIAL_PRINCIPAL: SessionPrincipal = SessionPrincipalSchema.parse({
   userId: '00000000-0000-4000-8000-000000000101',
-  email: 'admin@localhost',
+  email: 'admin@wendoro.local',
   fullName: 'Workspace Admin',
   mfaEnabled: false,
   isPlatformAdmin: true,
@@ -101,7 +101,11 @@ function createUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 function loadPersistedState(): PersistedSetupState {

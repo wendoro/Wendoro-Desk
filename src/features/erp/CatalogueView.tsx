@@ -39,26 +39,30 @@ export function CatalogueView() {
       sku.trim().toUpperCase() ||
       `SKU-${String(data.catalogue.length + 1).padStart(4, '0')}`;
 
-    addCatalogueItem({
-      sku: generatedSku,
-      name: name.trim(),
-      type,
-      category: category.trim() || 'General',
-      unit: unit.trim() || 'Nos',
-      costPrice: Math.max(0, Number(costPrice) || 0),
-      sellingPrice: Math.max(0, Number(sellingPrice) || 0),
-      taxRate: Math.max(0, Number(taxRate) || 0),
-      trackStock: type === 'physical' ? trackStock : false,
-      stockOnHand: type === 'physical' && trackStock ? Math.max(0, Number(stockOnHand) || 0) : 0,
-      reorderLevel: Math.max(0, Number(reorderLevel) || 0),
-    });
+    try {
+      addCatalogueItem({
+        sku: generatedSku,
+        name: name.trim(),
+        type,
+        category: category.trim() || 'General',
+        unit: unit.trim() || 'Nos',
+        costPrice: Math.max(0, Number(costPrice) || 0),
+        sellingPrice: Math.max(0, Number(sellingPrice) || 0),
+        taxRate: Math.max(0, Number(taxRate) || 0),
+        trackStock: type === 'physical' ? trackStock : false,
+        stockOnHand: type === 'physical' && trackStock ? Math.max(0, Number(stockOnHand) || 0) : 0,
+        reorderLevel: Math.max(0, Number(reorderLevel) || 0),
+      });
 
-    setSku('');
-    setName('');
-    setCostPrice('0');
-    setSellingPrice('0');
-    setStockOnHand('0');
-    setShowForm(false);
+      setSku('');
+      setName('');
+      setCostPrice('0');
+      setSellingPrice('0');
+      setStockOnHand('0');
+      setShowForm(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Unable to save item.');
+    }
   };
 
   const columns: DataColumn<CatalogueItem>[] = [

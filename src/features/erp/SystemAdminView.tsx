@@ -121,7 +121,7 @@ export function SystemAdminView({
     data.salesOrders.length +
     data.purchaseOrders.length +
     data.stockMovements.length +
-    data.ledgerEntries.length +
+    data.journals.length +
     data.employees.length +
     data.projectTasks.length +
     data.supportTickets.length +

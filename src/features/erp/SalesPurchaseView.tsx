@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Printer, Trash2, X } from 'lucide-react';
+import { Banknote, PackageCheck, Plus, Printer, Trash2, Truck, X } from 'lucide-react';
 import { Button } from '@/src/components/ui/Button';
 import { DataColumn, DataTable } from '@/src/components/ui/DataTable';
 import { Surface } from '@/src/components/ui/Surface';
@@ -39,9 +39,12 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
     data,
     createSalesOrder,
     updateSalesStatus,
+    dispatchSalesOrder,
+    recordSalesPayment,
     deleteSalesOrder,
     createPurchaseOrder,
-    updatePurchaseStatus,
+    receivePurchaseOrder,
+    recordPurchasePayment,
     deletePurchaseOrder,
   } = useErpData();
 
@@ -61,6 +64,8 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([emptyDraftLine()]);
   const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [previewOrder, setPreviewOrder] = useState<SalesOrder | PurchaseOrder | null>(null);
 
   const contactsPool = useMemo(() => {
@@ -111,6 +116,9 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
+    setActionError(null);
+    setActionNotice(null);
+
     if (!counterpartyName.trim()) {
       setFormError(`${isSales ? 'Customer' : 'Vendor'} name is required.`);
       return;
@@ -130,38 +138,55 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
       return;
     }
 
-    if (isSales) {
-      createSalesOrder({
-        documentType,
-        customerId: selectedContactId || undefined,
-        customerName: counterpartyName.trim(),
-        issueDate,
-        dueDate,
-        status: (['draft', 'sent', 'paid'].includes(initialStatus)
-          ? initialStatus
-          : 'sent') as SalesStatus,
-        lines: parsedLines,
-        notes,
-      });
-    } else {
-      createPurchaseOrder({
-        vendorId: selectedContactId || undefined,
-        vendorName: counterpartyName.trim(),
-        orderDate: issueDate,
-        expectedDate: dueDate,
-        status: (['draft', 'ordered', 'received'].includes(initialStatus)
-          ? initialStatus
-          : 'ordered') as PurchaseStatus,
-        lines: parsedLines,
-        notes,
-      });
-    }
+    try {
+      if (isSales) {
+        const created = createSalesOrder({
+          documentType,
+          customerId: selectedContactId || undefined,
+          customerName: counterpartyName.trim(),
+          issueDate,
+          dueDate,
+          status: (['draft', 'sent', 'paid'].includes(initialStatus)
+            ? initialStatus
+            : 'sent') as SalesStatus,
+          lines: parsedLines,
+          notes,
+        });
+        setActionNotice(`Created ${created.documentNumber} (${created.status}).`);
+      } else {
+        const created = createPurchaseOrder({
+          vendorId: selectedContactId || undefined,
+          vendorName: counterpartyName.trim(),
+          orderDate: issueDate,
+          expectedDate: dueDate,
+          status: (['draft', 'ordered', 'received'].includes(initialStatus)
+            ? initialStatus
+            : 'ordered') as PurchaseStatus,
+          lines: parsedLines,
+          notes,
+        });
+        setActionNotice(`Created ${created.documentNumber} (${created.status}).`);
+      }
 
-    setCounterpartyName('');
-    setSelectedContactId('');
-    setNotes('');
-    setLines([emptyDraftLine()]);
-    setShowForm(false);
+      setCounterpartyName('');
+      setSelectedContactId('');
+      setNotes('');
+      setLines([emptyDraftLine()]);
+      setShowForm(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Unable to save order.');
+    }
+  };
+
+  const runAction = (fn: () => void, successMsg?: string) => {
+    setActionError(null);
+    setActionNotice(null);
+    try {
+      fn();
+      if (successMsg) setActionNotice(successMsg);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Operation failed.');
+    }
   };
 
   const salesColumns: DataColumn<SalesOrder>[] = [
@@ -190,12 +215,14 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
     },
     {
       key: 'status',
-      header: 'Status & Posting',
+      header: 'Billing & Fulfillment',
       render: (r) => (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={r.status}
-            onChange={(e) => updateSalesStatus(r.id, e.target.value as SalesStatus)}
+            onChange={(e) =>
+              runAction(() => updateSalesStatus(r.id, e.target.value as SalesStatus))
+            }
             aria-label={`Status for ${r.documentNumber}`}
             className="h-7 px-2 rounded-md text-xs bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] capitalize cursor-pointer"
           >
@@ -204,15 +231,29 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
             <option value="paid">Paid</option>
             <option value="cancelled">Cancelled</option>
           </select>
-          {r.ledgerPosted && (
-            <span className="text-[11px] font-medium text-[#16B8A6]">Posted</span>
-          )}
+          <span
+            className={`text-[11px] font-medium capitalize ${
+              r.fulfillmentStatus === 'dispatched'
+                ? 'text-[#16B8A6]'
+                : r.fulfillmentStatus === 'reserved'
+                  ? 'text-[#4169F5]'
+                  : 'text-[#718096] dark:text-slate-400'
+            }`}
+          >
+            {r.fulfillmentStatus === 'dispatched'
+              ? `Dispatched (${r.dispatchRef ?? 'DN'})`
+              : r.fulfillmentStatus === 'reserved'
+                ? 'Stock Reserved'
+                : r.ledgerPosted
+                  ? 'GL Posted'
+                  : 'Pending'}
+          </span>
         </div>
       ),
     },
     {
       key: 'total',
-      header: 'Grand Total',
+      header: 'Total & Paid',
       align: 'right',
       numeric: true,
       sortable: true,
@@ -223,7 +264,8 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
             {formatNumericCurrency(r.grandTotal, currency, 2)}
           </div>
           <div className="text-[11px] text-[#718096] dark:text-slate-400">
-            Tax: {formatNumericCurrency(r.taxTotal, currency, 2)}
+            Paid: {formatNumericCurrency(r.amountPaid, currency, 2)} · Tax:{' '}
+            {formatNumericCurrency(r.taxTotal, currency, 2)}
           </div>
         </div>
       ),
@@ -232,26 +274,79 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
       key: 'actions',
       header: '',
       align: 'right',
-      render: (r) => (
-        <div className="inline-flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setPreviewOrder(r)}
-            aria-label={`Print ${r.documentNumber}`}
-            className="p-1.5 rounded-md text-[#4169F5] hover:bg-[#4169F5]/10 cursor-pointer"
-          >
-            <Printer className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => deleteSalesOrder(r.id)}
-            aria-label={`Delete ${r.documentNumber}`}
-            className="p-1.5 rounded-md text-[#718096] hover:text-red-600 cursor-pointer"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ),
+      render: (r) => {
+        const canDispatch =
+          r.documentType === 'invoice' &&
+          r.status !== 'cancelled' &&
+          r.fulfillmentStatus !== 'dispatched' &&
+          r.lines.some((l) => Boolean(l.itemId));
+        const remaining = r.grandTotal - r.amountPaid;
+        const canCollect =
+          r.documentType === 'invoice' &&
+          r.status !== 'cancelled' &&
+          remaining > 0.005;
+
+        return (
+          <div className="inline-flex items-center gap-1">
+            {canDispatch && (
+              <button
+                type="button"
+                onClick={() =>
+                  runAction(
+                    () => dispatchSalesOrder(r.id, today),
+                    `Dispatched goods and posted COGS for ${r.documentNumber}.`,
+                  )
+                }
+                title="Dispatch goods & deduct physical stock"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-[#4169F5] hover:bg-[#4169F5]/10 cursor-pointer"
+              >
+                <Truck className="h-3.5 w-3.5" />
+                Dispatch
+              </button>
+            )}
+            {canCollect && (
+              <button
+                type="button"
+                onClick={() =>
+                  runAction(
+                    () =>
+                      recordSalesPayment({
+                        orderId: r.id,
+                        amount: remaining,
+                        paymentDate: today,
+                        method: 'bank',
+                      }),
+                    `Recorded payment allocation for ${r.documentNumber}.`,
+                  )
+                }
+                title="Allocate remaining AR payment"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-[#16B8A6] hover:bg-[#16B8A6]/10 cursor-pointer"
+              >
+                <Banknote className="h-3.5 w-3.5" />
+                Collect
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setPreviewOrder(r)}
+              aria-label={`Print ${r.documentNumber}`}
+              className="p-1.5 rounded-md text-[#4169F5] hover:bg-[#4169F5]/10 cursor-pointer"
+            >
+              <Printer className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                runAction(() => deleteSalesOrder(r.id), `Deleted ${r.documentNumber}.`)
+              }
+              aria-label={`Delete ${r.documentNumber}`}
+              className="p-1.5 rounded-md text-[#718096] hover:text-red-600 cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        );
+      },
     },
   ];
 
@@ -284,60 +379,113 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
       header: 'Receipt & Posting',
       render: (r) => (
         <div className="flex items-center gap-2">
-          <select
-            value={r.status}
-            onChange={(e) => updatePurchaseStatus(r.id, e.target.value as PurchaseStatus)}
-            aria-label={`Status for ${r.documentNumber}`}
-            className="h-7 px-2 rounded-md text-xs bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] capitalize cursor-pointer"
+          <span
+            className={`text-xs font-semibold capitalize ${
+              r.status === 'received'
+                ? 'text-[#16B8A6]'
+                : r.status === 'cancelled'
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-[#4169F5]'
+            }`}
           >
-            <option value="draft">Draft</option>
-            <option value="ordered">Ordered</option>
-            <option value="received">Received</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+            {r.status}
+          </span>
           {r.stockPosted && (
-            <span className="text-[11px] font-medium text-[#16B8A6]">Stock Added</span>
+            <span className="text-[11px] font-mono text-[#718096] dark:text-slate-400">
+              {r.receiptRef ?? 'GRN'}
+            </span>
           )}
         </div>
       ),
     },
     {
       key: 'total',
-      header: 'Total Payable',
+      header: 'Payable & Paid',
       align: 'right',
       numeric: true,
       sortable: true,
       sortValue: (r) => r.grandTotal,
       render: (r) => (
-        <span className="font-semibold">
-          {formatNumericCurrency(r.grandTotal, currency, 2)}
-        </span>
+        <div>
+          <div className="font-semibold">
+            {formatNumericCurrency(r.grandTotal, currency, 2)}
+          </div>
+          <div className="text-[11px] text-[#718096] dark:text-slate-400">
+            Paid: {formatNumericCurrency(r.amountPaid, currency, 2)}
+          </div>
+        </div>
       ),
     },
     {
       key: 'actions',
       header: '',
       align: 'right',
-      render: (r) => (
-        <div className="inline-flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setPreviewOrder(r)}
-            aria-label={`Print ${r.documentNumber}`}
-            className="p-1.5 rounded-md text-[#4169F5] hover:bg-[#4169F5]/10 cursor-pointer"
-          >
-            <Printer className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => deletePurchaseOrder(r.id)}
-            aria-label={`Delete ${r.documentNumber}`}
-            className="p-1.5 rounded-md text-[#718096] hover:text-red-600 cursor-pointer"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ),
+      render: (r) => {
+        const canReceive = r.status !== 'received' && r.status !== 'cancelled';
+        const remaining = r.grandTotal - r.amountPaid;
+        const canPay = r.status === 'received' && remaining > 0.005;
+
+        return (
+          <div className="inline-flex items-center gap-1">
+            {canReceive && (
+              <button
+                type="button"
+                onClick={() =>
+                  runAction(
+                    () => receivePurchaseOrder({ orderId: r.id, receiptDate: today }),
+                    `Received goods (GRN) and posted AP for ${r.documentNumber}.`,
+                  )
+                }
+                title="Post Goods Receipt Note (GRN)"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-[#16B8A6] hover:bg-[#16B8A6]/10 cursor-pointer"
+              >
+                <PackageCheck className="h-3.5 w-3.5" />
+                Receive GRN
+              </button>
+            )}
+            {canPay && (
+              <button
+                type="button"
+                onClick={() =>
+                  runAction(
+                    () =>
+                      recordPurchasePayment({
+                        orderId: r.id,
+                        amount: remaining,
+                        paymentDate: today,
+                        method: 'bank',
+                      }),
+                    `Paid supplier balance for ${r.documentNumber}.`,
+                  )
+                }
+                title="Pay remaining supplier AP"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-[#4169F5] hover:bg-[#4169F5]/10 cursor-pointer"
+              >
+                <Banknote className="h-3.5 w-3.5" />
+                Pay AP
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setPreviewOrder(r)}
+              aria-label={`Print ${r.documentNumber}`}
+              className="p-1.5 rounded-md text-[#4169F5] hover:bg-[#4169F5]/10 cursor-pointer"
+            >
+              <Printer className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                runAction(() => deletePurchaseOrder(r.id), `Deleted ${r.documentNumber}.`)
+              }
+              aria-label={`Delete ${r.documentNumber}`}
+              className="p-1.5 rounded-md text-[#718096] hover:text-red-600 cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        );
+      },
     },
   ];
 
@@ -350,8 +498,8 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
           </h1>
           <p className="mt-1 text-xs text-[#718096] dark:text-slate-400">
             {isSales
-              ? 'Create quotes and GST/tax invoices. Marking Sent deducts inventory; marking Paid posts directly to Accounting.'
-              : 'Create vendor purchase orders. Marking Received adds stock to Inventory and posts an expense in Accounting.'}
+              ? 'Sending an invoice reserves stock and posts AR/Revenue/Output Tax. Use Dispatch to deduct physical inventory and post COGS.'
+              : 'Create vendor purchase orders. Posting a Goods Receipt (GRN) updates inventory valuation, batches, Input Tax, and Accounts Payable.'}
           </p>
         </div>
         <Button variant="primary" size="sm" onClick={() => setShowForm((v) => !v)}>
@@ -363,6 +511,17 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
               : 'New Purchase Order'}
         </Button>
       </div>
+
+      {actionError && (
+        <Surface padding="sm" className="text-xs font-medium text-red-600 dark:text-red-400">
+          {actionError}
+        </Surface>
+      )}
+      {actionNotice && (
+        <Surface padding="sm" className="text-xs font-medium text-[#16B8A6]">
+          {actionNotice}
+        </Surface>
+      )}
 
       {showForm && (
         <Surface padding="lg">
@@ -430,14 +589,14 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
                   {isSales ? (
                     <>
                       <option value="draft">Draft</option>
-                      <option value="sent">Sent (Deducts Stock)</option>
-                      <option value="paid">Paid (Posts Revenue & Stock)</option>
+                      <option value="sent">Sent (Reserves Stock & Posts AR)</option>
+                      <option value="paid">Paid (Posts AR + Cash Settlement)</option>
                     </>
                   ) : (
                     <>
                       <option value="draft">Draft</option>
                       <option value="ordered">Ordered</option>
-                      <option value="received">Received (Adds Stock & Expense)</option>
+                      <option value="received">Received (Posts GRN, Stock & AP)</option>
                     </>
                   )}
                 </select>
@@ -624,10 +783,12 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
           getRowKey={(r) => r.id}
           searchPlaceholder="Search invoice number or customer..."
           searchPredicate={(r, q) =>
-            `${r.documentNumber} ${r.customerName} ${r.status}`.toLowerCase().includes(q)
+            `${r.documentNumber} ${r.customerName} ${r.status} ${r.fulfillmentStatus}`
+              .toLowerCase()
+              .includes(q)
           }
           emptyTitle="No sales quotes or invoices yet"
-          emptyDescription="Create your first invoice or quotation to bill customers, track GST/tax, and update inventory."
+          emptyDescription="Create your first invoice or quotation to reserve stock, post double-entry AR/Revenue, and dispatch orders."
           emptyActionLabel="New Invoice / Quote"
           onEmptyAction={() => setShowForm(true)}
         />
@@ -641,7 +802,7 @@ export function SalesPurchaseView({ mode }: { mode: 'sales' | 'purchase' }) {
             `${r.documentNumber} ${r.vendorName} ${r.status}`.toLowerCase().includes(q)
           }
           emptyTitle="No purchase orders yet"
-          emptyDescription="Create purchase orders to procure inventory from vendors and record supplier payables."
+          emptyDescription="Create purchase orders to procure inventory from vendors, post GRNs, and settle supplier payables."
           emptyActionLabel="New Purchase Order"
           onEmptyAction={() => setShowForm(true)}
         />

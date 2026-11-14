@@ -41,6 +41,7 @@ function HrmsPanel() {
   const [designation, setDesignation] = useState('Specialist');
   const [monthlySalary, setMonthlySalary] = useState('0');
   const [payrollNotice, setPayrollNotice] = useState<string | null>(null);
+  const [payrollError, setPayrollError] = useState<string | null>(null);
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,12 +63,20 @@ function HrmsPanel() {
   };
 
   const handleRunPayroll = () => {
-    const total = runMonthlyPayroll();
-    setPayrollNotice(
-      total > 0
-        ? `Posted ${formatNumericCurrency(total, currency, 2)} payroll run to Accounting Ledger.`
-        : 'Add at least one active employee with a salary > 0 to run payroll.',
-    );
+    setPayrollError(null);
+    setPayrollNotice(null);
+    try {
+      const run = runMonthlyPayroll();
+      setPayrollNotice(
+        `Posted ${formatNumericCurrency(run.totalGross, currency, 2)} payroll run (${run.periodKey}) for ${run.employeeCount} staff to Double-Entry Ledger.`,
+      );
+    } catch (err) {
+      setPayrollError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to execute monthly payroll run.',
+      );
+    }
   };
 
   const columns: DataColumn<EmployeeRecord>[] = [
@@ -163,6 +172,11 @@ function HrmsPanel() {
         </div>
       </div>
 
+      {payrollError && (
+        <Surface padding="sm" className="text-xs font-medium text-red-600 dark:text-red-400">
+          {payrollError}
+        </Surface>
+      )}
       {payrollNotice && (
         <Surface padding="sm" className="text-xs font-medium text-[#16B8A6]">
           {payrollNotice}

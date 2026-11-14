@@ -155,6 +155,7 @@ export function IndustryOpsView({ moduleSlug }: { moduleSlug: string }) {
     Array<{ itemId: string; name: string; sku: string; qty: number; unitPrice: number; taxRate: number }>
   >([]);
   const [posReceiptMsg, setPosReceiptMsg] = useState<string | null>(null);
+  const [posError, setPosError] = useState<string | null>(null);
 
   const handleAddRecord = (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,26 +218,33 @@ export function IndustryOpsView({ moduleSlug }: { moduleSlug: string }) {
 
   const handleCheckoutPos = () => {
     if (posCart.length === 0) return;
+    setPosError(null);
+    setPosReceiptMsg(null);
     const today = new Date().toISOString().slice(0, 10);
-    const created = createSalesOrder({
-      documentType: 'invoice',
-      customerName: posCustomer.trim() || 'Walk-in Customer',
-      issueDate: today,
-      dueDate: today,
-      status: 'paid',
-      lines: posCart.map((c) => ({
-        itemId: c.itemId,
-        description: `${c.sku} · ${c.name}`,
-        quantity: c.qty,
-        unitPrice: c.unitPrice,
-        taxRate: c.taxRate,
-      })),
-      notes: 'POS Counter Sale',
-    });
-    setPosCart([]);
-    setPosReceiptMsg(
-      `POS Sale ${created.documentNumber} completed (${formatNumericCurrency(created.grandTotal, currency, 2)}). Stock deducted & revenue posted to Accounting.`,
-    );
+    try {
+      const created = createSalesOrder({
+        documentType: 'invoice',
+        customerName: posCustomer.trim() || 'Walk-in Customer',
+        issueDate: today,
+        dueDate: today,
+        status: 'paid',
+        isImmediatePosSale: true,
+        lines: posCart.map((c) => ({
+          itemId: c.itemId,
+          description: `${c.sku} · ${c.name}`,
+          quantity: c.qty,
+          unitPrice: c.unitPrice,
+          taxRate: c.taxRate,
+        })),
+        notes: 'POS Counter Sale',
+      });
+      setPosCart([]);
+      setPosReceiptMsg(
+        `POS Sale ${created.documentNumber} completed (${formatNumericCurrency(created.grandTotal, currency, 2)}). Stock dispatched & revenue/COGS posted to Accounting.`,
+      );
+    } catch (err) {
+      setPosError(err instanceof Error ? err.message : 'POS checkout failed.');
+    }
   };
 
   const columns: DataColumn<IndustryOperationRecord>[] = [
@@ -350,6 +358,11 @@ export function IndustryOpsView({ moduleSlug }: { moduleSlug: string }) {
             </span>
           </div>
 
+          {posError && (
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs font-medium text-red-600 dark:text-red-400">
+              {posError}
+            </div>
+          )}
           {posReceiptMsg && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-[#16B8A6]/10 border border-[#16B8A6]/30 text-xs font-medium text-[#16B8A6]">
               <CheckCircle2 className="h-4 w-4 shrink-0" />

@@ -65,7 +65,7 @@ export function DashboardOverview({
       case 'inventory':
         return `${data.stockMovements.length} movements`;
       case 'accounting':
-        return `${data.ledgerEntries.length} entries`;
+        return `${data.journals.length} journals`;
       case 'hrms':
         return `${data.employees.length} staff`;
       case 'projects':
@@ -155,7 +155,8 @@ export function DashboardOverview({
             {formatNumericCurrency(metrics.netIncome, currency, 2)}
           </div>
           <div className="mt-1 text-[11px] text-[#718096] dark:text-slate-400">
-            {data.ledgerEntries.length} posted ledger entries
+            {data.journals.length} balanced journals · Stock asset:{' '}
+            {formatNumericCurrency(metrics.inventoryAssetValue, currency, 2)}
           </div>
         </Surface>
 
@@ -293,44 +294,37 @@ export function DashboardOverview({
               Open Ledger
             </button>
           </div>
-          {data.ledgerEntries.length === 0 ? (
+          {data.journals.length === 0 ? (
             <div className="p-8 text-center space-y-2">
               <p className="text-sm font-medium text-[#182238] dark:text-slate-100">
-                No ledger entries posted yet
+                No journals posted yet
               </p>
               <p className="text-xs text-[#718096] dark:text-slate-400">
-                Paid invoices, received POs, payroll runs, and manual vouchers appear here.
+                Sales invoices, goods receipts, payroll runs, and balanced manual journals appear here.
               </p>
               <div className="pt-2">
                 <Button size="sm" variant="outline" onClick={() => onNavigate('module:accounting')}>
-                  Record Entry
+                  Record Journal
                 </Button>
               </div>
             </div>
           ) : (
             <div className="divide-y divide-slate-200/80 dark:divide-[#223257]">
-              {data.ledgerEntries.slice(0, 5).map((entry) => (
+              {data.journals.slice(0, 5).map((journal) => (
                 <div
-                  key={entry.id}
+                  key={journal.id}
                   className="px-5 py-3 flex items-center justify-between gap-3 text-xs"
                 >
                   <div className="min-w-0">
                     <div className="font-semibold text-[#182238] dark:text-slate-100 truncate">
-                      {entry.accountName} · {entry.reference}
+                      {journal.journalNumber} · {journal.reference}
                     </div>
                     <div className="text-[11px] text-[#718096] dark:text-slate-400 truncate">
-                      {entry.date} · {entry.description}
+                      {journal.date} · {journal.description}
                     </div>
                   </div>
-                  <div
-                    className={`font-mono font-semibold tabular-nums shrink-0 ${
-                      entry.entryType === 'income'
-                        ? 'text-[#16B8A6]'
-                        : 'text-[#182238] dark:text-slate-100'
-                    }`}
-                  >
-                    {entry.entryType === 'income' ? '+' : '-'}
-                    {formatNumericCurrency(entry.amount, currency, 2)}
+                  <div className="font-mono font-semibold tabular-nums shrink-0 text-[#16B8A6]">
+                    {formatNumericCurrency(journal.totalDebit, currency, 2)}
                   </div>
                 </div>
               ))}
