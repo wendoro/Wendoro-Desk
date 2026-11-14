@@ -1,17 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppShell } from '@/src/components/shell/AppShell';
+import { ErpDataProvider } from '@/src/components/shell/ErpDataProvider';
 import { FirebaseProvider, useFirebase } from '@/src/components/shell/FirebaseProvider';
 import { TenantProvider, useTenant } from '@/src/components/shell/TenantProvider';
 import { ThemeProvider } from '@/src/components/shell/ThemeProvider';
 import { WENDORO_MODULES } from '@/src/core/registry/modules';
+import { AccountingView } from '@/src/features/erp/AccountingView';
+import { CatalogueView } from '@/src/features/erp/CatalogueView';
+import { CrmView } from '@/src/features/erp/CrmView';
+import { DashboardOverview } from '@/src/features/erp/DashboardOverview';
+import { IndustryOpsView } from '@/src/features/erp/IndustryOpsView';
+import { InventoryView } from '@/src/features/erp/InventoryView';
+import { OperationsModulesView } from '@/src/features/erp/OperationsModulesView';
+import { SalesPurchaseView } from '@/src/features/erp/SalesPurchaseView';
+import { SystemAdminView } from '@/src/features/erp/SystemAdminView';
 import { DeploymentGuideView } from '@/src/features/foundation/DeploymentGuideView';
-import { DesignSystemView } from '@/src/features/foundation/DesignSystemView';
-import { FoundationOverview } from '@/src/features/foundation/FoundationOverview';
-import { IdentityTenancyView } from '@/src/features/foundation/IdentityTenancyView';
-import { MilestonePlanView } from '@/src/features/foundation/MilestonePlanView';
 import { ModuleRoadmapView } from '@/src/features/foundation/ModuleRoadmapView';
-import { SchemaExplorerView } from '@/src/features/foundation/SchemaExplorerView';
 import { SetupWizard } from '@/src/features/setup/SetupWizard';
 
 const queryClient = new QueryClient({
@@ -52,26 +57,25 @@ function WorkspaceRouter() {
       const mod = WENDORO_MODULES.find((m) => m.slug === slug);
       return [
         'WENDORO',
-        mod?.layer === 'industry' ? 'Industry' : 'Business Apps',
+        mod?.layer === 'industry' ? 'Industry' : 'Operations',
         mod?.name ?? slug,
       ];
     }
     switch (activeRoute) {
+      case 'admin':
+        return ['WENDORO', 'Workspace', 'Modules & Settings'];
       case 'setup':
-        return ['WENDORO', 'Core Platform', 'Setup Wizard'];
+        return ['WENDORO', 'Workspace', 'Setup Wizard'];
       case 'deploy':
-        return ['WENDORO', 'Core Platform', 'Deploy & Distribute'];
+        return ['WENDORO', 'Workspace', 'Deploy & Distribute'];
       case 'schema':
-        return ['WENDORO', 'Core Platform', 'Architecture & Schema'];
       case 'identity':
-        return ['WENDORO', 'Core Platform', 'Identity & Multi-Tenancy'];
       case 'design':
-        return ['WENDORO', 'Core Platform', 'Design System'];
       case 'milestone':
-        return ['WENDORO', 'Core Platform', 'Milestone 1 & Gates'];
+        return ['WENDORO', 'Workspace', 'Platform Architecture'];
       case 'overview':
       default:
-        return ['WENDORO', 'Core Platform', 'Executive Shell'];
+        return ['WENDORO', 'Operations', 'Dashboard'];
     }
   }, [activeRoute]);
 
@@ -90,15 +94,73 @@ function WorkspaceRouter() {
   const renderContent = () => {
     if (activeRoute.startsWith('module:')) {
       const slug = activeRoute.replace('module:', '');
-      return (
-        <ModuleRoadmapView
-          moduleSlug={slug}
-          onBack={() => setActiveRoute('overview')}
-        />
-      );
+      switch (slug) {
+        case 'catalogue':
+          return <CatalogueView />;
+        case 'crm':
+          return <CrmView onNavigate={setActiveRoute} />;
+        case 'sales':
+          return <SalesPurchaseView mode="sales" />;
+        case 'purchase':
+          return <SalesPurchaseView mode="purchase" />;
+        case 'inventory':
+          return <InventoryView onNavigate={setActiveRoute} />;
+        case 'accounting':
+          return <AccountingView />;
+        case 'hrms':
+        case 'projects':
+        case 'support':
+        case 'documents':
+        case 'marketing':
+          return <OperationsModulesView slug={slug} />;
+        default:
+          if (slug.startsWith('industry_')) {
+            return <IndustryOpsView moduleSlug={slug} />;
+          }
+          return (
+            <ModuleRoadmapView
+              moduleSlug={slug}
+              onBack={() => setActiveRoute('overview')}
+            />
+          );
+      }
     }
 
     switch (activeRoute) {
+      case 'admin':
+        return <SystemAdminView onNavigate={setActiveRoute} />;
+      case 'schema':
+        return (
+          <SystemAdminView
+            onNavigate={setActiveRoute}
+            initialTab="architecture"
+            initialArchTab="schema"
+          />
+        );
+      case 'identity':
+        return (
+          <SystemAdminView
+            onNavigate={setActiveRoute}
+            initialTab="architecture"
+            initialArchTab="identity"
+          />
+        );
+      case 'design':
+        return (
+          <SystemAdminView
+            onNavigate={setActiveRoute}
+            initialTab="architecture"
+            initialArchTab="design"
+          />
+        );
+      case 'milestone':
+        return (
+          <SystemAdminView
+            onNavigate={setActiveRoute}
+            initialTab="architecture"
+            initialArchTab="milestone"
+          />
+        );
       case 'setup':
         return (
           <SetupWizard
@@ -109,17 +171,9 @@ function WorkspaceRouter() {
         );
       case 'deploy':
         return <DeploymentGuideView onNavigate={setActiveRoute} />;
-      case 'schema':
-        return <SchemaExplorerView />;
-      case 'identity':
-        return <IdentityTenancyView />;
-      case 'design':
-        return <DesignSystemView />;
-      case 'milestone':
-        return <MilestonePlanView />;
       case 'overview':
       default:
-        return <FoundationOverview onNavigate={setActiveRoute} />;
+        return <DashboardOverview onNavigate={setActiveRoute} />;
     }
   };
 
@@ -140,7 +194,9 @@ export default function App() {
       <ThemeProvider>
         <FirebaseProvider>
           <TenantProvider>
-            <WorkspaceRouter />
+            <ErpDataProvider>
+              <WorkspaceRouter />
+            </ErpDataProvider>
           </TenantProvider>
         </FirebaseProvider>
       </ThemeProvider>

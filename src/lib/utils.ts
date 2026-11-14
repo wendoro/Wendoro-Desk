@@ -10,11 +10,14 @@ export function cn(...inputs: ClassValue[]) {
  * through IEEE-754 floating point arithmetic.
  */
 export function formatNumericCurrency(
-  numericString: string,
+  numericInput: string | number,
   currencyCode = 'USD',
   scale = 2,
 ): string {
-  const trimmed = numericString.trim();
+  const trimmed =
+    typeof numericInput === 'number'
+      ? (Number.isFinite(numericInput) ? numericInput.toFixed(scale) : '0')
+      : numericInput.trim();
   const isNegative = trimmed.startsWith('-');
   const unsigned = isNegative ? trimmed.slice(1) : trimmed;
   const [rawInt = '0', rawFrac = ''] = unsigned.split('.');

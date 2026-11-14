@@ -38,15 +38,23 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
     const coreViews: PaletteItem[] = [
       {
         id: 'nav-overview',
-        group: 'Foundation Workspace',
-        label: 'Executive Shell Overview',
-        detail: 'Active company context, module activation & Phase 0 summary',
+        group: 'Workspace',
+        label: 'Dashboard',
+        detail: 'Live KPIs, active apps launcher, recent sales & accounting ledger',
         icon: <Layers className="h-4 w-4 text-[#4169F5]" />,
         action: () => onNavigate('overview'),
       },
       {
+        id: 'nav-admin',
+        group: 'Workspace',
+        label: 'Modules & Settings',
+        detail: 'Enable/disable modules, manage branches, JSON backups & platform specs',
+        icon: <Layers className="h-4 w-4 text-[#16B8A6]" />,
+        action: () => onNavigate('admin'),
+      },
+      {
         id: 'nav-setup',
-        group: 'Foundation Workspace',
+        group: 'Workspace',
         label: 'Company Setup Wizard',
         detail: 'Onboard a new company, regional GST/currency preset & license tier',
         icon: <Layers className="h-4 w-4 text-[#16B8A6]" />,
@@ -54,7 +62,7 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
       },
       {
         id: 'nav-deploy',
-        group: 'Foundation Workspace',
+        group: 'Workspace',
         label: 'Deploy & Distribute Guide',
         detail: 'Cloudflare Workers, Docker Compose, Node.js 24 PaaS, Vercel & Netlify',
         icon: <Rocket className="h-4 w-4 text-[#4169F5]" />,
@@ -62,7 +70,7 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
       },
       {
         id: 'nav-schema',
-        group: 'Foundation Workspace',
+        group: 'Platform Specs',
         label: 'Architecture & Database Schema',
         detail: 'PostgreSQL Drizzle definitions, namespaces & RLS migration 0000',
         icon: <Layers className="h-4 w-4 text-[#8B5CF6]" />,
@@ -70,27 +78,11 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
       },
       {
         id: 'nav-identity',
-        group: 'Foundation Workspace',
+        group: 'Platform Specs',
         label: 'Identity & Multi-Tenancy Model',
         detail: 'Better Auth separation, RBAC matrix & tenant isolation',
         icon: <Shield className="h-4 w-4 text-[#16B8A6]" />,
         action: () => onNavigate('identity'),
-      },
-      {
-        id: 'nav-design',
-        group: 'Foundation Workspace',
-        label: 'Design System Specimen',
-        detail: 'WENDORO palette, typography scale, DataTable & UI states',
-        icon: <Layers className="h-4 w-4 text-[#4169F5]" />,
-        action: () => onNavigate('design'),
-      },
-      {
-        id: 'nav-milestone',
-        group: 'Foundation Workspace',
-        label: 'Milestone 1 & Acceptance Criteria',
-        detail: 'Phase 0 sign-off gates and Phase 1 implementation plan',
-        icon: <Layers className="h-4 w-4 text-[#16B8A6]" />,
-        action: () => onNavigate('milestone'),
       },
     ];
 
@@ -109,7 +101,7 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
       id: `mod-${mod.slug}`,
       group: mod.layer === 'business' ? 'Business Applications' : 'Industry Packages',
       label: mod.name,
-      detail: `${mod.targetPhase} · schema: ${mod.schemaNamespace}`,
+      detail: mod.description,
       icon: <Layers className="h-4 w-4 text-[#718096]" />,
       action: () => onNavigate(`module:${mod.slug}`),
     }));

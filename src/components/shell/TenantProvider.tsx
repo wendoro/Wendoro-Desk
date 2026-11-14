@@ -41,35 +41,31 @@ interface PersistedSetupState {
   licenseKey?: string;
 }
 
-const SETUP_STORAGE_KEY = 'wendoro.setup.v1';
+const SETUP_STORAGE_KEY = 'wendoro.setup.v2';
+const PLACEHOLDER_COMPANY_ID = '00000000-0000-4000-8000-000000000001';
 
-/**
- * Phase 0 Reference Principal validating SessionPrincipalSchema.
- * Demonstrates one identity holding distinct roles & module entitlements
- * across three independent companies prior to Phase 1 database seeding.
- */
 const INITIAL_PRINCIPAL: SessionPrincipal = SessionPrincipalSchema.parse({
-  userId: '11111111-1111-4111-8111-111111111101',
-  email: 'architect@example.com',
-  fullName: 'Workspace Architect',
-  mfaEnabled: true,
+  userId: '00000000-0000-4000-8000-000000000101',
+  email: 'admin@localhost',
+  fullName: 'Workspace Admin',
+  mfaEnabled: false,
   isPlatformAdmin: true,
-  activeTenantId: '22222222-2222-4222-8222-222222222201',
-  activeCompanyId: '33333333-3333-4333-8333-333333333301',
-  activeBranchId: '44444444-4444-4444-8444-444444444401',
-  subscriptionTier: 'enterprise',
+  activeTenantId: '00000000-0000-4000-8000-000000000201',
+  activeCompanyId: PLACEHOLDER_COMPANY_ID,
+  activeBranchId: '00000000-0000-4000-8000-000000000401',
+  subscriptionTier: 'free',
   memberships: [
     {
-      membershipId: '55555555-5555-4555-8555-555555555501',
-      tenantId: '22222222-2222-4222-8222-222222222201',
-      companyId: '33333333-3333-4333-8333-333333333301',
-      companyCode: 'NRS-GLOBAL',
-      companyName: 'Northstar Commerce Ltd',
-      legalName: 'Northstar Commerce Private Limited',
-      industryClassification: 'Retail & Distribution',
-      baseCurrency: 'USD',
-      countryCode: 'US',
-      timezone: 'America/New_York',
+      membershipId: '00000000-0000-4000-8000-000000000501',
+      tenantId: '00000000-0000-4000-8000-000000000201',
+      companyId: PLACEHOLDER_COMPANY_ID,
+      companyCode: 'ORG-01',
+      companyName: 'My Organization',
+      legalName: 'My Organization',
+      industryClassification: 'General Business',
+      baseCurrency: 'INR',
+      countryCode: 'IN',
+      timezone: 'Asia/Kolkata',
       roleName: 'Organization Owner',
       roleSlug: 'owner',
       roleScope: 'tenant',
@@ -83,154 +79,29 @@ const INITIAL_PRINCIPAL: SessionPrincipal = SessionPrincipalSchema.parse({
         'purchase',
         'inventory',
         'accounting',
-        'industry_retail',
-      ],
-      defaultBranchId: '44444444-4444-4444-8444-444444444401',
-      branches: [
-        {
-          id: '44444444-4444-4444-8444-444444444401',
-          code: 'NYC-HQ',
-          name: 'New York Headquarters',
-          isHeadquarters: true,
-          city: 'New York',
-          countryCode: 'US',
-        },
-        {
-          id: '44444444-4444-4444-8444-444444444402',
-          code: 'AUS-HUB',
-          name: 'Austin Fulfilment Hub',
-          isHeadquarters: false,
-          city: 'Austin',
-          countryCode: 'US',
-        },
-      ],
-    },
-    {
-      membershipId: '55555555-5555-4555-8555-555555555502',
-      tenantId: '22222222-2222-4222-8222-222222222201',
-      companyId: '33333333-3333-4333-8333-333333333302',
-      companyCode: 'VER-ADV',
-      companyName: 'Veridian Advisory LLP',
-      legalName: 'Veridian Advisory Services LLP',
-      industryClassification: 'Professional Services',
-      baseCurrency: 'INR',
-      countryCode: 'IN',
-      timezone: 'Asia/Kolkata',
-      roleName: 'Finance Auditor',
-      roleSlug: 'auditor',
-      roleScope: 'company',
-      permissions: [
-        'accounting.ledger.read',
-        'accounting.reports.read',
-        'audit.logs.read',
-        'projects.timesheets.read',
-      ],
-      enabledModules: [
-        'core_identity',
-        'core_rbac',
-        'crm',
-        'accounting',
+        'hrms',
         'projects',
-        'documents',
-        'industry_services',
       ],
-      defaultBranchId: '44444444-4444-4444-8444-444444444403',
+      defaultBranchId: '00000000-0000-4000-8000-000000000401',
       branches: [
         {
-          id: '44444444-4444-4444-8444-444444444403',
-          code: 'BLR-HQ',
-          name: 'Bengaluru Corporate Office',
+          id: '00000000-0000-4000-8000-000000000401',
+          code: 'HQ-01',
+          name: 'Headquarters',
           isHeadquarters: true,
-          city: 'Bengaluru',
+          city: null,
           countryCode: 'IN',
-        },
-      ],
-    },
-    {
-      membershipId: '55555555-5555-4555-8555-555555555503',
-      tenantId: '22222222-2222-4222-8222-222222222202',
-      companyId: '33333333-3333-4333-8333-333333333303',
-      companyCode: 'AET-MFG',
-      companyName: 'Aether Precision Systems',
-      legalName: 'Aether Precision Systems GmbH',
-      industryClassification: 'Electronics & Manufacturing',
-      baseCurrency: 'EUR',
-      countryCode: 'DE',
-      timezone: 'Europe/Berlin',
-      roleName: 'Operations Manager',
-      roleSlug: 'ops_manager',
-      roleScope: 'branch',
-      permissions: [
-        'catalogue.*',
-        'inventory.*',
-        'purchase.order.read',
-        'purchase.order.approve',
-        'industry_manufacturing.*',
-      ],
-      enabledModules: [
-        'core_identity',
-        'core_rbac',
-        'catalogue',
-        'purchase',
-        'inventory',
-        'industry_manufacturing',
-        'industry_electronics',
-      ],
-      defaultBranchId: '44444444-4444-4444-8444-444444444404',
-      branches: [
-        {
-          id: '44444444-4444-4444-8444-444444444404',
-          code: 'MUC-PLANT',
-          name: 'Munich Assembly Plant',
-          isHeadquarters: true,
-          city: 'Munich',
-          countryCode: 'DE',
-        },
-        {
-          id: '44444444-4444-4444-8444-444444444405',
-          code: 'FRA-DIST',
-          name: 'Frankfurt Logistics Depot',
-          isHeadquarters: false,
-          city: 'Frankfurt',
-          countryCode: 'DE',
         },
       ],
     },
   ],
 });
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: 'notif-phase0-arch',
-    category: 'architecture',
-    title: 'Phase 0 Foundation Initialized',
-    body: 'Core schemas, RLS migration 0000, and multi-tenant shell contracts are ready for review.',
-    timestamp: 'Phase 0',
-    isRead: false,
-  },
-  {
-    id: 'notif-phase0-rls',
-    category: 'security',
-    title: 'PostgreSQL RLS Isolation Configured',
-    body: 'Transaction-scoped set_config() policies defined across organization and audit schemas.',
-    timestamp: 'Migration 0000',
-    isRead: false,
-  },
-  {
-    id: 'notif-phase1-gate',
-    category: 'governance',
-    title: 'Awaiting Phase 1 Sign-Off',
-    body: 'Approve foundation deliverables before provisioning Better Auth and live REST endpoints.',
-    timestamp: 'Milestone 1',
-    isRead: true,
-  },
-];
-
 function createUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  return '66666666-6666-4666-8666-666666666601';
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function loadPersistedState(): PersistedSetupState {
@@ -260,12 +131,14 @@ interface TenantContextValue {
   licenseKey?: string;
   switchCompany: (companyId: string) => void;
   switchBranch: (branchId: string | null) => void;
+  addBranchToActiveCompany: (branch: { code: string; name: string; city: string }) => void;
   toggleCompanyModule: (moduleSlug: string) => void;
   completeSetupWizard: (input: SetupWizardInput) => CompanyMembership;
   skipSetupWizard: () => void;
   resetSetupWizard: () => void;
   can: (permission: string) => boolean;
   notifications: NotificationItem[];
+  pushNotification: (item: Omit<NotificationItem, 'id' | 'timestamp' | 'isRead'>) => void;
   markAllNotificationsRead: () => void;
 }
 
@@ -280,9 +153,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [licenseKey, setLicenseKey] = useState<string | undefined>(
     initialState.licenseKey,
   );
-  const [notifications, setNotifications] = useState<NotificationItem[]>(
-    INITIAL_NOTIFICATIONS,
-  );
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   const persist = (
     nextPrincipal: SessionPrincipal,
@@ -328,6 +199,33 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const addBranchToActiveCompany = (branch: {
+    code: string;
+    name: string;
+    city: string;
+  }) => {
+    const newBranch = {
+      id: createUuid(),
+      code: branch.code.trim().toUpperCase(),
+      name: branch.name.trim(),
+      isHeadquarters: false,
+      city: branch.city.trim() || null,
+      countryCode: activeCompany.countryCode,
+    };
+    setPrincipal((prev) => {
+      const next: SessionPrincipal = {
+        ...prev,
+        memberships: prev.memberships.map((m) =>
+          m.companyId === prev.activeCompanyId
+            ? { ...m, branches: [...m.branches, newBranch] }
+            : m,
+        ),
+      };
+      persist(next, setupCompleted, licenseKey);
+      return next;
+    });
+  };
+
   const toggleCompanyModule = (moduleSlug: string) => {
     if (moduleSlug === 'core_identity' || moduleSlug === 'core_rbac') return;
     setPrincipal((prev) => {
@@ -347,6 +245,21 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       persist(next, setupCompleted, licenseKey);
       return next;
     });
+  };
+
+  const pushNotification: TenantContextValue['pushNotification'] = (item) => {
+    setNotifications((prev) => [
+      {
+        ...item,
+        id: createUuid(),
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        isRead: false,
+      },
+      ...prev.slice(0, 24),
+    ]);
   };
 
   const completeSetupWizard = (input: SetupWizardInput): CompanyMembership => {
@@ -388,13 +301,17 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       ],
     };
 
+    const existingRealMemberships = principal.memberships.filter(
+      (m) => m.companyId !== PLACEHOLDER_COMPANY_ID,
+    );
+
     const nextPrincipal: SessionPrincipal = SessionPrincipalSchema.parse({
       ...principal,
       activeTenantId: tenantId,
       activeCompanyId: companyId,
       activeBranchId: branchId,
       subscriptionTier: input.subscriptionTier,
-      memberships: [newMembership, ...principal.memberships],
+      memberships: [newMembership, ...existingRealMemberships],
     });
 
     const trimmedKey = input.licenseKey?.trim() || undefined;
@@ -403,17 +320,11 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     setLicenseKey(trimmedKey);
     persist(nextPrincipal, true, trimmedKey);
 
-    setNotifications((prev) => [
-      {
-        id: `notif-setup-${companyId}`,
-        category: 'governance',
-        title: `${newMembership.companyName} Provisioned`,
-        body: `Setup wizard configured ${dedupedModules.length} modules under ${input.subscriptionTier} licensing.`,
-        timestamp: 'Just now',
-        isRead: false,
-      },
-      ...prev,
-    ]);
+    pushNotification({
+      category: 'governance',
+      title: `${newMembership.companyName} Created`,
+      body: `${dedupedModules.length} modules activated (${input.subscriptionTier} tier).`,
+    });
 
     return newMembership;
   };
@@ -429,6 +340,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     }
     setPrincipal(INITIAL_PRINCIPAL);
     setLicenseKey(undefined);
+    setNotifications([]);
     setSetupCompleted(false);
   };
 
@@ -448,12 +360,14 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         licenseKey,
         switchCompany,
         switchBranch,
+        addBranchToActiveCompany,
         toggleCompanyModule,
         completeSetupWizard,
         skipSetupWizard,
         resetSetupWizard,
         can,
         notifications,
+        pushNotification,
         markAllNotificationsRead,
       }}
     >

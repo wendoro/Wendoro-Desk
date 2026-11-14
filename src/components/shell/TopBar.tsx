@@ -282,28 +282,34 @@ export function TopBar({
                 )}
               </div>
               <div className="divide-y divide-slate-200/80 dark:divide-[#223257] max-h-72 overflow-y-auto">
-                {notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    className={`p-3 text-xs ${
-                      n.isRead
-                        ? 'opacity-75'
-                        : 'bg-[#F6F8FC]/80 dark:bg-[#162342]/60'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-[#182238] dark:text-slate-100">
-                        {n.title}
-                      </span>
-                      <span className="text-[11px] text-[#718096] dark:text-slate-400 whitespace-nowrap">
-                        {n.timestamp}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[#718096] dark:text-slate-400 leading-relaxed">
-                      {n.body}
-                    </p>
+                {notifications.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-[#718096] dark:text-slate-400">
+                    No notifications yet. Activity from invoices, payroll, and company setup appears here.
                   </div>
-                ))}
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      className={`p-3 text-xs ${
+                        n.isRead
+                          ? 'opacity-75'
+                          : 'bg-[#F6F8FC]/80 dark:bg-[#162342]/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-[#182238] dark:text-slate-100">
+                          {n.title}
+                        </span>
+                        <span className="text-[11px] text-[#718096] dark:text-slate-400 whitespace-nowrap">
+                          {n.timestamp}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[#718096] dark:text-slate-400 leading-relaxed">
+                        {n.body}
+                      </p>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}

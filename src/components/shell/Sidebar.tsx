@@ -6,13 +6,11 @@ import {
   CheckSquare,
   ChevronLeft,
   ChevronRight,
-  Database,
   FileText,
   FolderKanban,
   LayoutDashboard,
   LifeBuoy,
   Megaphone,
-  Palette,
   Receipt,
   Rocket,
   ShieldCheck,
@@ -65,14 +63,10 @@ export function Sidebar({
 }: SidebarProps) {
   const { activeCompany } = useTenant();
 
-  const foundationItems = [
-    { id: 'overview', label: 'Executive Shell', icon: LayoutDashboard },
-    { id: 'setup', label: 'Setup Wizard', icon: SlidersHorizontal },
+  const platformItems = [
+    { id: 'admin', label: 'Modules & Settings', icon: SlidersHorizontal },
+    { id: 'setup', label: 'Setup Wizard', icon: CheckSquare },
     { id: 'deploy', label: 'Deploy & Distribute', icon: Rocket },
-    { id: 'schema', label: 'Architecture & Schema', icon: Database },
-    { id: 'identity', label: 'Identity & Multi-Tenancy', icon: ShieldCheck },
-    { id: 'design', label: 'Design System', icon: Palette },
-    { id: 'milestone', label: 'Milestone 1 & Gates', icon: CheckSquare },
   ];
 
   const enabledBusinessModules = WENDORO_MODULES.filter(
@@ -143,53 +137,37 @@ export function Sidebar({
           aria-label="Primary Workspace Navigation"
           className="flex-1 overflow-y-auto px-2.5 py-4 space-y-6"
         >
-          {/* Layer A — Foundation */}
+          {/* Operations & Business Apps */}
           <div>
             {!isCompact && (
               <div className="px-2.5 mb-2 text-[11px] font-medium text-slate-400">
-                Core Platform
+                Operations
               </div>
             )}
             <ul className="space-y-1">
-              {foundationItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeRoute === item.id;
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onNavigate(item.id);
-                        if (isMobileDrawer) onCloseMobile();
-                      }}
-                      title={isCompact ? item.label : undefined}
-                      className={cn(
-                        'w-full flex items-center gap-3 px-2.5 h-9 rounded-lg text-[13px] font-medium transition-colors cursor-pointer',
-                        isCompact && 'justify-center px-0',
-                        isActive
-                          ? 'bg-[#4169F5] text-white'
-                          : 'text-slate-300 hover:bg-[#1A294D] hover:text-white',
-                      )}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {!isCompact && (
-                        <span className="truncate whitespace-nowrap">{item.label}</span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onNavigate('overview');
+                    if (isMobileDrawer) onCloseMobile();
+                  }}
+                  title={isCompact ? 'Dashboard' : undefined}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-2.5 h-9 rounded-lg text-[13px] font-medium transition-colors cursor-pointer',
+                    isCompact && 'justify-center px-0',
+                    activeRoute === 'overview'
+                      ? 'bg-[#4169F5] text-white'
+                      : 'text-slate-300 hover:bg-[#1A294D] hover:text-white',
+                  )}
+                >
+                  <LayoutDashboard className="h-4 w-4 shrink-0" />
+                  {!isCompact && (
+                    <span className="truncate whitespace-nowrap">Dashboard</span>
+                  )}
+                </button>
+              </li>
 
-          {/* Layer B — Activated Business Applications */}
-          <div>
-            {!isCompact && (
-              <div className="px-2.5 mb-2 text-[11px] font-medium text-slate-400">
-                Active Business Apps ({enabledBusinessModules.length})
-              </div>
-            )}
-            <ul className="space-y-1">
               {enabledBusinessModules.map((mod) => {
                 const Icon = MODULE_ICONS[mod.slug] ?? Boxes;
                 const routeId = `module:${mod.slug}`;
@@ -222,12 +200,12 @@ export function Sidebar({
             </ul>
           </div>
 
-          {/* Layer C — Active Industry Packages */}
+          {/* Active Industry Packages */}
           {enabledIndustryModules.length > 0 && (
             <div>
               {!isCompact && (
                 <div className="px-2.5 mb-2 text-[11px] font-medium text-slate-400">
-                  Industry Packages ({enabledIndustryModules.length})
+                  Industry Operations ({enabledIndustryModules.length})
                 </div>
               )}
               <ul className="space-y-1">
@@ -263,6 +241,48 @@ export function Sidebar({
               </ul>
             </div>
           )}
+
+          {/* Workspace & Platform */}
+          <div>
+            {!isCompact && (
+              <div className="px-2.5 mb-2 text-[11px] font-medium text-slate-400">
+                Workspace & Platform
+              </div>
+            )}
+            <ul className="space-y-1">
+              {platformItems.map((item) => {
+                const Icon = item.icon;
+                const isActive =
+                  activeRoute === item.id ||
+                  (item.id === 'admin' &&
+                    ['schema', 'identity', 'design', 'milestone'].includes(activeRoute));
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onNavigate(item.id);
+                        if (isMobileDrawer) onCloseMobile();
+                      }}
+                      title={isCompact ? item.label : undefined}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-2.5 h-9 rounded-lg text-[13px] font-medium transition-colors cursor-pointer',
+                        isCompact && 'justify-center px-0',
+                        isActive
+                          ? 'bg-[#4169F5] text-white'
+                          : 'text-slate-300 hover:bg-[#1A294D] hover:text-white',
+                      )}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {!isCompact && (
+                        <span className="truncate whitespace-nowrap">{item.label}</span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </nav>
 
         {/* Active Context Footer */}

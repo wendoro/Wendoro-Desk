@@ -162,13 +162,13 @@ export function SetupWizard({
 
   const [step, setStep] = useState<number>(1);
   const [regionId, setRegionId] = useState<string>('IN');
-  const [companyName, setCompanyName] = useState<string>('BakeWeb Technologies');
-  const [legalName, setLegalName] = useState<string>('BakeWeb Technologies Private Limited');
-  const [companyCode, setCompanyCode] = useState<string>('BAKE-IN');
+  const [companyName, setCompanyName] = useState<string>('');
+  const [legalName, setLegalName] = useState<string>('');
+  const [companyCode, setCompanyCode] = useState<string>('');
   const [taxNumber, setTaxNumber] = useState<string>('');
-  const [branchCode, setBranchCode] = useState<string>('BLR-HQ');
-  const [branchName, setBranchName] = useState<string>('Bengaluru Headquarters');
-  const [branchCity, setBranchCity] = useState<string>('Bengaluru');
+  const [branchCode, setBranchCode] = useState<string>('HQ-01');
+  const [branchName, setBranchName] = useState<string>('Headquarters');
+  const [branchCity, setBranchCity] = useState<string>('');
 
   const [selectedPreset, setSelectedPreset] = useState<string>('commerce');
   const [industryClassification, setIndustryClassification] = useState<string>(
@@ -442,7 +442,7 @@ APP_URL="https://erp.example.com"
               )}
             </button>
             <Button variant="ghost" size="sm" onClick={onSkip}>
-              Skip to Reference Workspace
+              Skip Setup
             </Button>
           </div>
         </header>
@@ -573,6 +573,7 @@ APP_URL="https://erp.example.com"
                   type="text"
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="e.g. Acme Retail Pvt Ltd"
                   className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
                 />
               </div>
@@ -585,6 +586,7 @@ APP_URL="https://erp.example.com"
                   type="text"
                   value={companyCode}
                   onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. ACME-IN"
                   className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
                 />
               </div>
@@ -597,6 +599,7 @@ APP_URL="https://erp.example.com"
                   type="text"
                   value={legalName}
                   onChange={(e) => setLegalName(e.target.value)}
+                  placeholder="e.g. Acme Retail Private Limited"
                   className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
                 />
               </div>
@@ -624,6 +627,7 @@ APP_URL="https://erp.example.com"
                   type="text"
                   value={branchName}
                   onChange={(e) => setBranchName(e.target.value)}
+                  placeholder="e.g. Main Headquarters"
                   className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
                 />
               </div>
@@ -635,6 +639,7 @@ APP_URL="https://erp.example.com"
                   type="text"
                   value={branchCode}
                   onChange={(e) => setBranchCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. HQ-01"
                   className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
                 />
               </div>
@@ -646,6 +651,7 @@ APP_URL="https://erp.example.com"
                   type="text"
                   value={branchCity}
                   onChange={(e) => setBranchCity(e.target.value)}
+                  placeholder={`e.g. ${region.defaultCity}`}
                   className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
                 />
               </div>
