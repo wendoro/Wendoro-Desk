@@ -1,7 +1,7 @@
 import { ErpDatabaseState } from '@/src/core/store/erpTypes';
 import { EMPTY_ERP_DATABASE_STATE } from './erpTransactions';
 
-export type PersistenceAdapterMode = 'localstorage-dev' | 'postgresql-api';
+export type PersistenceAdapterMode = 'indexeddb-dexie' | 'localstorage-dev' | 'postgresql-api';
 
 export interface ErpStorageAdapter {
   readonly mode: PersistenceAdapterMode;
@@ -13,7 +13,7 @@ export interface ErpStorageAdapter {
 const ERP_STORAGE_KEY = 'wendoro.erp.data.v2';
 const LEGACY_STORAGE_KEY = 'wendoro.erp.data.v1';
 
-function normalizeLoadedState(parsed: Partial<ErpDatabaseState>): ErpDatabaseState {
+export function normalizeLoadedState(parsed: Partial<ErpDatabaseState>): ErpDatabaseState {
   return {
     schemaVersion: typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : 3,
     sequences: parsed.sequences && typeof parsed.sequences === 'object' ? parsed.sequences : {},

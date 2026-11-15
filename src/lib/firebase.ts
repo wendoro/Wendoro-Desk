@@ -12,10 +12,12 @@ export interface FirebaseClientConfig {
   messagingSenderId?: string;
 }
 
-const localConfigModules = import.meta.glob<{ default: FirebaseClientConfig }>(
-  '/firebase-applet-config.json',
-  { eager: true },
-);
+const localConfigModules =
+  typeof import.meta.glob === 'function'
+    ? import.meta.glob<{ default: FirebaseClientConfig }>('/firebase-applet-config.json', {
+        eager: true,
+      })
+    : {};
 
 function resolveFirebaseConfig(): FirebaseClientConfig | null {
   const localModule = localConfigModules['/firebase-applet-config.json'];
@@ -24,10 +26,11 @@ function resolveFirebaseConfig(): FirebaseClientConfig | null {
     return fileConfig;
   }
 
-  const envApiKey = import.meta.env.VITE_FIREBASE_API_KEY;
-  const envProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-  const envAppId = import.meta.env.VITE_FIREBASE_APP_ID;
-  const envAuthDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env;
+  const envApiKey = env?.VITE_FIREBASE_API_KEY;
+  const envProjectId = env?.VITE_FIREBASE_PROJECT_ID;
+  const envAppId = env?.VITE_FIREBASE_APP_ID;
+  const envAuthDomain = env?.VITE_FIREBASE_AUTH_DOMAIN;
 
   if (envApiKey && envProjectId && envAppId && envAuthDomain) {
     return {
@@ -35,9 +38,9 @@ function resolveFirebaseConfig(): FirebaseClientConfig | null {
       projectId: envProjectId,
       appId: envAppId,
       authDomain: envAuthDomain,
-      firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '(default)',
-      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+      firestoreDatabaseId: env?.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '(default)',
+      storageBucket: env?.VITE_FIREBASE_STORAGE_BUCKET || '',
+      messagingSenderId: env?.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
     };
   }
 

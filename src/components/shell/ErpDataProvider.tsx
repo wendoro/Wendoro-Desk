@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApprovalRule,
   AttendanceLog,
@@ -100,6 +100,12 @@ import {
   PersistenceAdapterMode,
   defaultDevStorageAdapter,
 } from '@/src/core/engine/storageAdapter';
+import {
+  SyncStatusMode,
+  createHttpSyncTransport,
+  getDefaultDexieRepository,
+  isNavigatorOnline,
+} from '@/src/core/engine/dexieStorage';
 import { useTenant } from './TenantProvider';
 
 export interface ErpCompanyScopedData {
@@ -149,8 +155,19 @@ export interface ErpCompanyScopedData {
   auditLogs: AuditLogRecord[];
 }
 
+export interface ErpSyncState {
+  status: SyncStatusMode;
+  isOnline: boolean;
+  pendingCount: number;
+  lastSyncedAt: string | null;
+  lastSyncError: string | null;
+  hydratedFromIndexedDb: boolean;
+  triggerSync: () => Promise<void>;
+}
+
 interface ErpDataContextValue {
   storageMode: PersistenceAdapterMode;
+  syncState: ErpSyncState;
   data: ErpCompanyScopedData;
   trialBalance: {
     rows: TrialBalanceRow[];
@@ -393,21 +410,217 @@ interface ErpDataContextValue {
 const ErpDataContext = createContext<ErpDataContextValue | null>(null);
 
 export function ErpDataProvider({ children }: { children: React.ReactNode }) {
-  const { principal, activeCompany, activeBranchId, pushNotification } = useTenant();
-  const [state, setState] = useState<ErpDatabaseState>(() => {
+  const { principal, activeCompany, activeBranchId, licenseActivation, pushNotification } =
+    useTenant();
+  const dexieRepo = useMemo(() => getDefaultDexieRepository(), []);
+  const [state, setRawState] = useState<ErpDatabaseState>(() => {
     const loaded = defaultDevStorageAdapter.loadState();
     return ensureCompanyAccounts(loaded, activeCompany.companyId).nextState;
   });
 
   const companyId = activeCompany.companyId;
 
+  const [isOnline, setIsOnline] = useState<boolean>(() => isNavigatorOnline());
+  const [syncStatus, setSyncStatus] = useState<SyncStatusMode>(() =>
+    isNavigatorOnline() ? 'synced' : 'offline_queued',
+  );
+  const [pendingCount, setPendingCount] = useState<number>(0);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [lastSyncError, setLastSyncError] = useState<string | null>(null);
+  const [hydratedFromIndexedDb, setHydratedFromIndexedDb] = useState<boolean>(false);
+
+  const hasHydratedRef = useRef<boolean>(false);
+  const userMutatedBeforeHydrationRef = useRef<boolean>(false);
+  const skipNextPersistRef = useRef<boolean>(true);
+  const queueNextPersistRef = useRef<boolean>(false);
+  const isOnlineRef = useRef<boolean>(isOnline);
+  const licenseServerRef = useRef<string | undefined>(licenseActivation?.serverUrl);
+  const licenseKeyRef = useRef<string | null>(licenseActivation?.licenseKey ?? null);
+
+  isOnlineRef.current = isOnline;
+  licenseServerRef.current = licenseActivation?.serverUrl;
+  licenseKeyRef.current = licenseActivation?.licenseKey ?? null;
+
+  const syncTransport = useMemo(
+    () =>
+      createHttpSyncTransport({
+        getServerBaseUrl: () => licenseServerRef.current ?? '',
+        getLicenseKey: () => licenseKeyRef.current,
+      }),
+    [],
+  );
+
+  // Wrapper used by all business mutations so they immediately persist to IndexedDB & queue sync
+  const setState = useCallback(
+    (updater: React.SetStateAction<ErpDatabaseState>) => {
+      if (!hasHydratedRef.current) {
+        userMutatedBeforeHydrationRef.current = true;
+      }
+      queueNextPersistRef.current = true;
+      setRawState(updater);
+    },
+    [],
+  );
+
+  const runSyncFlush = useCallback(async () => {
+    if (!dexieRepo) return;
+    if (!isOnlineRef.current) {
+      const summary = await dexieRepo.getSyncSummary();
+      setPendingCount(summary.pendingCount);
+      setLastSyncedAt(summary.lastSyncedAt);
+      setSyncStatus(summary.pendingCount > 0 ? 'offline_queued' : 'synced');
+      return;
+    }
+
+    const preSummary = await dexieRepo.getSyncSummary();
+    if (preSummary.pendingCount === 0) {
+      setPendingCount(0);
+      setLastSyncedAt(preSummary.lastSyncedAt);
+      setSyncStatus('synced');
+      return;
+    }
+
+    setSyncStatus('syncing');
+    const result = await dexieRepo.syncPendingChanges(syncTransport, () => isOnlineRef.current);
+    setPendingCount(result.remainingCount);
+    if (result.lastSyncedAt) {
+      setLastSyncedAt(result.lastSyncedAt);
+    }
+
+    if (result.skippedOffline) {
+      setSyncStatus(result.remainingCount > 0 ? 'offline_queued' : 'synced');
+      return;
+    }
+
+    if (result.error) {
+      setLastSyncError(result.error);
+      setSyncStatus(result.remainingCount > 0 ? 'error' : 'synced');
+    } else {
+      setLastSyncError(null);
+      setSyncStatus(result.remainingCount > 0 ? 'pending' : 'synced');
+    }
+  }, [dexieRepo, syncTransport]);
+
+  // Boot hydration from local Dexie.js IndexedDB (with one-time legacy localStorage migration)
   useEffect(() => {
-    setState((prev) => ensureCompanyAccounts(prev, companyId).nextState);
+    if (!dexieRepo) return;
+    let active = true;
+
+    void dexieRepo.hydrateState().then((hydrated) => {
+      if (!active) return;
+      hasHydratedRef.current = true;
+      setHydratedFromIndexedDb(true);
+      setPendingCount(hydrated.pendingOutboxCount);
+      setLastSyncedAt(hydrated.lastSyncedAt);
+
+      if (!userMutatedBeforeHydrationRef.current) {
+        skipNextPersistRef.current = true;
+        setRawState(ensureCompanyAccounts(hydrated.state, companyId).nextState);
+      }
+
+      if (hydrated.pendingOutboxCount > 0) {
+        if (isOnlineRef.current) {
+          void runSyncFlush();
+        } else {
+          setSyncStatus('offline_queued');
+        }
+      } else {
+        setSyncStatus('synced');
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [dexieRepo]);
+
+  // Track device network connectivity and automatically sync when returning online
+  useEffect(() => {
+    const handleOnline = () => {
+      isOnlineRef.current = true;
+      setIsOnline(true);
+      void runSyncFlush();
+    };
+    const handleOffline = () => {
+      isOnlineRef.current = false;
+      setIsOnline(false);
+      setSyncStatus((prev) => (pendingCount > 0 || prev === 'pending' ? 'offline_queued' : prev));
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [pendingCount, runSyncFlush]);
+
+  // Periodic background flush while online if any queued items remain
+  useEffect(() => {
+    if (!isOnline || pendingCount === 0) return;
+    const interval = window.setInterval(() => {
+      void runSyncFlush();
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [isOnline, pendingCount, runSyncFlush]);
+
+  // Ensure default chart of accounts exists when switching active company
+  useEffect(() => {
+    setRawState((prev) => {
+      const res = ensureCompanyAccounts(prev, companyId);
+      if (res.createdAccountsCount > 0) {
+        queueNextPersistRef.current = true;
+      }
+      return res.nextState;
+    });
   }, [companyId]);
 
+  // Persist every state change atomically to Dexie.js IndexedDB and sync only when online
   useEffect(() => {
-    defaultDevStorageAdapter.saveState(state);
-  }, [state]);
+    try {
+      defaultDevStorageAdapter.saveState(state);
+    } catch {
+      // Ignore localStorage quota limits when IndexedDB handles full dataset
+    }
+
+    if (!dexieRepo) return;
+
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false;
+      return;
+    }
+
+    const shouldQueue = queueNextPersistRef.current;
+    queueNextPersistRef.current = false;
+
+    let cancelled = false;
+    const persistTimer = window.setTimeout(() => {
+      void dexieRepo
+        .persistState(state, {
+          queueSync: shouldQueue,
+          activeCompanyId: companyId,
+          changeSummary: `Updated ${activeCompany.companyCode} business records`,
+        })
+        .then(({ pendingCount: nextPending }) => {
+          if (cancelled) return;
+          setPendingCount(nextPending);
+          if (nextPending > 0) {
+            if (isOnlineRef.current) {
+              void runSyncFlush();
+            } else {
+              setSyncStatus('offline_queued');
+            }
+          } else {
+            setSyncStatus('synced');
+          }
+        });
+    }, 40);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(persistTimer);
+    };
+  }, [state, companyId, activeCompany.companyCode, dexieRepo, runSyncFlush]);
 
   const scope: TransactionScope = useMemo(
     () => ({
@@ -1505,10 +1718,32 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const syncState: ErpSyncState = useMemo(
+    () => ({
+      status: syncStatus,
+      isOnline,
+      pendingCount,
+      lastSyncedAt,
+      lastSyncError,
+      hydratedFromIndexedDb,
+      triggerSync: runSyncFlush,
+    }),
+    [
+      syncStatus,
+      isOnline,
+      pendingCount,
+      lastSyncedAt,
+      lastSyncError,
+      hydratedFromIndexedDb,
+      runSyncFlush,
+    ],
+  );
+
   return (
     <ErpDataContext.Provider
       value={{
-        storageMode: defaultDevStorageAdapter.mode,
+        storageMode: dexieRepo ? 'indexeddb-dexie' : defaultDevStorageAdapter.mode,
+        syncState,
         data,
         trialBalance,
         financialStatements,

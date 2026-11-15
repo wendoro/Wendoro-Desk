@@ -10,6 +10,7 @@ import { getPostgresPool, migrateBackupJsonToPostgres } from '@/src/db/client';
 import { getAuthReadiness, getBetterAuth } from '@/src/server/auth';
 import { encryptCredential } from '@/src/server/crypto';
 import { LicenseServerError, createLicenseService } from '@/src/server/licensing';
+import { ServerSyncStore, SyncPayloadSchema } from '@/src/server/syncStore';
 import {
   AuthenticatedRequest,
   createRequireCompanyPermission,
@@ -22,6 +23,7 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const distDir = path.resolve(__dirname, 'dist');
 const licenseService = createLicenseService();
+const syncStore = new ServerSyncStore();
 
 app.disable('x-powered-by');
 
@@ -61,7 +63,18 @@ app.all('/api/auth/*', (req, res) => {
   void handler(req, res);
 });
 
-app.use(express.json({ limit: '2mb' }));
+app.use('/api/erp/:companyId/sync', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Wendoro-License-Key');
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
+app.use(express.json({ limit: '5mb' }));
 
 // Health endpoint for License Server & Desktop/Android ping
 app.get('/api/health', (_req, res) => {
@@ -250,6 +263,55 @@ const requirePermission = createRequireCompanyPermission(
   resolveSessionPrincipal,
   recordServerAudit,
 );
+
+// Offline-first IndexedDB (Dexie.js) synchronization endpoints
+app.get('/api/erp/:companyId/sync/status', (req, res) => {
+  const companyId = String(req.params.companyId || '').trim();
+  if (!companyId) {
+    res.status(400).json({ error: 'INVALID_COMPANY', message: 'Company ID is required.' });
+    return;
+  }
+  res.status(200).json({
+    ok: true,
+    companyId,
+    checkpoint: syncStore.getCheckpointMeta(companyId),
+  });
+});
+
+app.post('/api/erp/:companyId/sync', (req, res) => {
+  const paramCompanyId = String(req.params.companyId || '').trim();
+  const parsed = SyncPayloadSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({
+      error: 'INVALID_SYNC_PAYLOAD',
+      message: 'Offline sync payload failed validation.',
+    });
+    return;
+  }
+  if (parsed.data.companyId !== paramCompanyId) {
+    res.status(400).json({
+      error: 'COMPANY_MISMATCH',
+      message: 'Sync payload companyId does not match route parameter.',
+    });
+    return;
+  }
+
+  const headerLicense = req.headers['x-wendoro-license-key'];
+  const licenseKey = typeof headerLicense === 'string' ? headerLicense.trim() : null;
+  if (licenseKey) {
+    const check = licenseService.verifyLicense({ licenseKey });
+    if (!check.valid) {
+      res.status(403).json({
+        error: 'LICENSE_NOT_ACTIVE',
+        message: check.message || 'Active software license required for remote synchronization.',
+      });
+      return;
+    }
+  }
+
+  const result = syncStore.applySyncCheckpoint(parsed.data, licenseKey);
+  res.status(200).json(result);
+});
 
 // Protected audit log inspection
 app.get(

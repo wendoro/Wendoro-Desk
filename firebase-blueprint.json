@@ -196,6 +196,142 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "LicenseRegistration": {
+      "title": "LicenseRegistration",
+      "description": "Signed software license key entitlement record validated before unlocking WENDORO features (zero PII).",
+      "type": "object",
+      "properties": {
+        "licenseKey": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 64,
+          "pattern": "^WND-[A-Z]{4}-[A-Z0-9]{8}-[A-Z0-9]{8}$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "organizationName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "planTier": {
+          "type": "string",
+          "enum": ["free", "starter", "business", "professional", "enterprise", "white_label", "self_hosted"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["desktop", "android", "both"],
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "revoked", "expired"],
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "maxDevices": {
+          "type": "integer"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Z0-9]+$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "licenseKey",
+        "ownerUid",
+        "organizationName",
+        "planTier",
+        "platform",
+        "status",
+        "maxDevices",
+        "signature",
+        "expiresAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LicenseDeviceActivation": {
+      "title": "LicenseDeviceActivation",
+      "description": "Device seat binding record under a verified WENDORO license key.",
+      "type": "object",
+      "properties": {
+        "deviceId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "licenseKey": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 64,
+          "pattern": "^WND-[A-Z]{4}-[A-Z0-9]{8}-[A-Z0-9]{8}$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "deviceName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["desktop", "android", "web"],
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "appVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "activatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastVerifiedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "deviceId",
+        "licenseKey",
+        "ownerUid",
+        "deviceName",
+        "platform",
+        "appVersion",
+        "activatedAt",
+        "lastVerifiedAt"
+      ]
     }
   },
   "firestore": {
@@ -218,6 +354,14 @@
     "/workspaces/{companyId}/notifications/{notificationId}": {
       "schema": { "$ref": "#/entities/WorkspaceNotification" },
       "description": "Recipient-scoped realtime notifications inside a company workspace."
+    },
+    "/licenses/{licenseKey}": {
+      "schema": { "$ref": "#/entities/LicenseRegistration" },
+      "description": "User-owned software license keys validated before unlocking Desktop and Android features."
+    },
+    "/licenses/{licenseKey}/devices/{deviceId}": {
+      "schema": { "$ref": "#/entities/LicenseDeviceActivation" },
+      "description": "Bound Desktop and Android device activations governed by the parent license key."
     }
   }
 }

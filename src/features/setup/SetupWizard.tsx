@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   Copy,
+  HardDrive,
   KeyRound,
   Laptop,
   LogIn,
@@ -14,11 +15,11 @@ import {
   Smartphone,
   Sparkles,
   Sun,
-  Terminal,
   UserPlus,
 } from 'lucide-react';
 import { Button } from '@/src/components/ui/Button';
 import { Surface } from '@/src/components/ui/Surface';
+import { useFirebase } from '@/src/components/shell/FirebaseProvider';
 import { useTenant } from '@/src/components/shell/TenantProvider';
 import { useTheme } from '@/src/components/shell/ThemeProvider';
 import { WENDORO_LICENSE_PLANS } from '@/src/core/contracts/licensing';
@@ -28,10 +29,19 @@ import {
   LicensedPlatform,
   ServerLicenseSummary,
   activateLicenseKeyWithServer,
+  detectClientPlatform,
+  getDefaultDeviceName,
+  getOrCreateDeviceId,
   loginLicenseAccount,
   registerLicenseWithServer,
 } from '@/src/core/engine/licenseClient';
 import { WENDORO_MODULES } from '@/src/core/registry/modules';
+import {
+  listUserLicensesInFirebase,
+  registerLicenseInFirebase,
+  validateLicenseKeyFormat,
+  verifyAndActivateLicenseInFirebase,
+} from '@/src/lib/firebaseLicense';
 import { formatNumericCurrency } from '@/src/lib/utils';
 
 interface RegionPreset {
@@ -83,9 +93,9 @@ const BUSINESS_PRESETS = [
 ];
 
 const WIZARD_STEPS = [
-  { num: 1, title: 'Company & Modules', icon: Building2 },
+  { num: 1, title: 'Local Company & Apps', icon: Building2 },
   { num: 2, title: 'License & Activation', icon: KeyRound },
-  { num: 3, title: 'Desktop & Android Install', icon: Smartphone },
+  { num: 3, title: 'Native Launch', icon: HardDrive },
 ] as const;
 
 export interface SetupWizardProps {
@@ -100,13 +110,18 @@ export function SetupWizard({
   onSkip,
 }: SetupWizardProps) {
   const { theme, toggleTheme } = useTheme();
-  const { completeSetupWizard, licenseActivation } = useTenant();
+  const { user, authReady, isConfigured: isFirebaseConfigured, signInWithGoogle } = useFirebase();
+  const { completeSetupWizard, licenseActivation, setLicenseActivation } = useTenant();
 
   const [step, setStep] = useState<number>(1);
 
-  // Step 1: Company & Modules (simple & fast)
+  // Step 1: Local Business Profile & Offline Modules
   const [regionId, setRegionId] = useState<string>('IN');
-  const [companyName, setCompanyName] = useState<string>('');
+  const [companyName, setCompanyName] = useState<string>(
+    licenseActivation?.organizationName && licenseActivation.organizationName !== 'My Organization'
+      ? licenseActivation.organizationName
+      : '',
+  );
   const [companyCode, setCompanyCode] = useState<string>('');
   const [branchCity, setBranchCity] = useState<string>('Bengaluru');
   const [selectedPreset, setSelectedPreset] = useState<string>('commerce');
@@ -114,29 +129,48 @@ export function SetupWizard({
   const [enabledModules, setEnabledModules] = useState<string[]>(BUSINESS_PRESETS[0].modules);
   const [showCustomModules, setShowCustomModules] = useState(false);
 
-  // Step 2: License Server Auth & Activation
-  const [licenseTab, setLicenseTab] = useState<'register' | 'activate' | 'signin'>('register');
+  // Step 2: Native License Registration & Local Device Binding
+  const [licenseTab, setLicenseTab] = useState<'activate' | 'register' | 'keys'>(
+    licenseActivation ? 'activate' : 'register',
+  );
+  const [showEndpointOverride, setShowEndpointOverride] = useState(false);
   const [serverUrl, setServerUrl] = useState<string>(
-    typeof window !== 'undefined' && window.location.origin.startsWith('http')
-      ? window.location.origin
-      : 'http://localhost:3000',
+    licenseActivation?.serverUrl && licenseActivation.serverUrl.startsWith('http')
+      ? licenseActivation.serverUrl
+      : typeof window !== 'undefined' && window.location.origin.startsWith('http')
+        ? window.location.origin
+        : 'http://localhost:3000',
   );
   const [fullName, setFullName] = useState<string>('');
-  const [email, setEmail] = useState<string>('');
+  const [email, setEmail] = useState<string>(licenseActivation?.email ?? '');
   const [password, setPassword] = useState<string>('');
-  const [selectedTier, setSelectedTier] = useState<SubscriptionTier>('free');
-  const [licensedPlatform, setLicensedPlatform] = useState<LicensedPlatform>('both');
+  const [selectedTier, setSelectedTier] = useState<SubscriptionTier>(
+    licenseActivation?.planTier ?? 'free',
+  );
+  const [licensedPlatform, setLicensedPlatform] = useState<LicensedPlatform>(
+    licenseActivation?.platform ?? 'both',
+  );
   const [currencyDisplay, setCurrencyDisplay] = useState<'INR' | 'USD'>('INR');
-  const [licenseKeyInput, setLicenseKeyInput] = useState<string>(licenseActivation?.licenseKey ?? '');
-  const [activatedState, setActivatedState] = useState<LicenseActivationState | undefined>(licenseActivation);
+  const [licenseKeyInput, setLicenseKeyInput] = useState<string>(
+    licenseActivation?.licenseKey ?? '',
+  );
+  const [activatedState, setActivatedState] = useState<LicenseActivationState | undefined>(
+    licenseActivation,
+  );
   const [accountLicenses, setAccountLicenses] = useState<ServerLicenseSummary[]>([]);
   const [authLoading, setAuthLoading] = useState(false);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
 
-  // Step 3: Native Install Helpers
+  // Step 3: Native Initialization Helpers
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
+
+  const deviceId = useMemo(() => getOrCreateDeviceId(), []);
+  const devicePlatform = useMemo(() => detectClientPlatform(), []);
+  const deviceName = useMemo(() => getDefaultDeviceName(), []);
+  const useFirebaseForLicense = isFirebaseConfigured && authReady && Boolean(user?.emailVerified);
+  const isBootstrapAdmin = user?.email?.toLowerCase() === 'wendoro.dev@gmail.com';
 
   const region = useMemo(
     () => REGION_PRESETS.find((r) => r.id === regionId) ?? REGION_PRESETS[0],
@@ -148,17 +182,17 @@ export function SetupWizard({
     [],
   );
 
+  function suggestCode(name: string): string {
+    const clean = name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
+    return clean ? `${clean}-01` : '';
+  }
+
   const handleCompanyNameChange = (value: string) => {
     setCompanyName(value);
     if (!companyCode || companyCode === suggestCode(companyName)) {
       setCompanyCode(suggestCode(value));
     }
   };
-
-  function suggestCode(name: string): string {
-    const clean = name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
-    return clean ? `${clean}-01` : '';
-  }
 
   const handleRegionSelect = (nextRegionId: string) => {
     const preset = REGION_PRESETS.find((r) => r.id === nextRegionId);
@@ -200,24 +234,39 @@ export function SetupWizard({
     setAuthLoading(true);
     try {
       const org = companyName.trim() || 'My Organization';
-      const registered = await registerLicenseWithServer({
-        serverUrl,
-        email,
-        password,
-        fullName,
-        organizationName: org,
-        planTier: selectedTier,
-        platform: licensedPlatform,
-      });
-      setLicenseKeyInput(registered.license.licenseKey);
+      let activated: LicenseActivationState;
 
-      const activated = await activateLicenseKeyWithServer({
-        serverUrl: registered.serverUrl,
-        licenseKey: registered.license.licenseKey,
-      });
+      if (useFirebaseForLicense) {
+        activated = await registerLicenseInFirebase({
+          organizationName: org,
+          planTier: isBootstrapAdmin ? selectedTier : 'free',
+          platform: licensedPlatform,
+          deviceId,
+          deviceName,
+        });
+      } else {
+        const registered = await registerLicenseWithServer({
+          serverUrl,
+          email,
+          password,
+          fullName,
+          organizationName: org,
+          planTier: selectedTier,
+          platform: licensedPlatform,
+        });
+        activated = await activateLicenseKeyWithServer({
+          serverUrl: registered.serverUrl,
+          licenseKey: registered.license.licenseKey,
+          deviceName,
+        });
+      }
+
+      setLicenseKeyInput(activated.licenseKey);
+      setSelectedTier(activated.planTier);
       setActivatedState(activated);
+      setLicenseActivation(activated);
       setAuthNotice(
-        `Account registered! License key ${activated.licenseKey} has been issued and activated for this software.`,
+        `License ${activated.licenseKey} registered and bound to ${deviceName}.`,
       );
     } catch (err) {
       setValidationError(err instanceof Error ? err.message : 'Unable to register license.');
@@ -230,17 +279,34 @@ export function SetupWizard({
     if (e) e.preventDefault();
     setValidationError(null);
     setAuthNotice(null);
+
+    const fmt = validateLicenseKeyFormat(keyOverride ?? licenseKeyInput);
+    if (!fmt.valid) {
+      setValidationError(fmt.error || 'Enter a valid WENDORO registration key.');
+      return;
+    }
+
     setAuthLoading(true);
     try {
-      const targetKey = (keyOverride ?? licenseKeyInput).trim().toUpperCase();
-      const activated = await activateLicenseKeyWithServer({
-        serverUrl,
-        licenseKey: targetKey,
-      });
+      const activated = useFirebaseForLicense
+        ? await verifyAndActivateLicenseInFirebase({
+            licenseKey: fmt.normalized,
+            deviceId,
+            deviceName,
+          })
+        : await activateLicenseKeyWithServer({
+            serverUrl,
+            licenseKey: fmt.normalized,
+            deviceName,
+          });
+
       setLicenseKeyInput(activated.licenseKey);
       setSelectedTier(activated.planTier);
       setActivatedState(activated);
-      setAuthNotice(`License ${activated.licenseKey} verified and activated (${activated.planName}).`);
+      setLicenseActivation(activated);
+      setAuthNotice(
+        `License ${activated.licenseKey} verified (${activated.planName}) for this native device.`,
+      );
     } catch (err) {
       setValidationError(err instanceof Error ? err.message : 'Unable to activate license key.');
     } finally {
@@ -248,21 +314,31 @@ export function SetupWizard({
     }
   };
 
-  const handleSignInRetrieveKeys = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLoadKeys = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setValidationError(null);
     setAuthNotice(null);
     setAuthLoading(true);
     try {
-      const result = await loginLicenseAccount({ serverUrl, email, password });
-      setAccountLicenses(result.licenses);
-      if (result.licenses.length > 0) {
-        setAuthNotice(`Signed in as ${result.user.email}. Select a license key below to activate this device.`);
+      if (useFirebaseForLicense) {
+        const list = await listUserLicensesInFirebase();
+        setAccountLicenses(list);
+        setAuthNotice(
+          list.length > 0
+            ? `Found ${list.length} Firebase license ${list.length === 1 ? 'key' : 'keys'}. Select one to bind this device.`
+            : 'No keys registered on Firebase yet. Switch to Register & Get Key.',
+        );
       } else {
-        setAuthNotice(`Signed in as ${result.user.email}, no licenses found yet. Switch to Register to generate one.`);
+        const result = await loginLicenseAccount({ serverUrl, email, password });
+        setAccountLicenses(result.licenses);
+        setAuthNotice(
+          result.licenses.length > 0
+            ? `Signed in as ${result.user.email}. Select a key to activate this device.`
+            : `No keys found for ${result.user.email}. Switch to Register & Get Key.`,
+        );
       }
     } catch (err) {
-      setValidationError(err instanceof Error ? err.message : 'Sign-in failed.');
+      setValidationError(err instanceof Error ? err.message : 'Unable to fetch license keys.');
     } finally {
       setAuthLoading(false);
     }
@@ -271,7 +347,11 @@ export function SetupWizard({
   const handleNext = () => {
     setValidationError(null);
     if (step === 1 && !companyName.trim()) {
-      setValidationError('Enter your company or shop name to continue.');
+      setValidationError('Enter your company or shop name to initialize local storage.');
+      return;
+    }
+    if (step === 2 && !activatedState) {
+      setValidationError('Activate or register a valid license key before continuing.');
       return;
     }
     setStep((s) => Math.min(3, s + 1));
@@ -321,33 +401,36 @@ export function SetupWizard({
       }
     >
       {!isModalOrEmbedded && (
-        <header className="h-14 shrink-0 bg-white dark:bg-[#1B1417] border-b border-stone-200 dark:border-[#32242A] px-4 lg:px-8 flex items-center justify-between gap-4">
+        <header className="h-14 shrink-0 bg-[#181214] text-stone-100 border-b border-[#32242A] px-4 lg:px-8 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <div className="h-7 w-7 rounded-lg bg-[#DC2626] flex items-center justify-center font-display font-bold text-sm text-white relative">
               W
               <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#FACC15]" />
             </div>
-            <span className="font-display text-base font-bold tracking-tight whitespace-nowrap">
-              WENDORO Installer
+            <span className="font-display text-sm font-bold tracking-tight whitespace-nowrap">
+              WENDORO Native Setup
             </span>
           </div>
 
           <div className="flex items-center gap-2">
+            {activatedState && (
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#251B20] border border-[#3A2B31] text-[11px] font-mono text-[#FACC15]">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                {activatedState.licenseKey}
+              </span>
+            )}
             <button
               type="button"
               onClick={toggleTheme}
               aria-label="Toggle theme"
-              className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-stone-200 dark:border-[#32242A] bg-white dark:bg-[#141013] cursor-pointer"
+              className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[#32242A] bg-[#1B1417] text-stone-200 hover:bg-[#251B20] cursor-pointer"
             >
               {theme === 'dark' ? (
                 <Sun className="h-4 w-4 text-[#FACC15]" />
               ) : (
-                <Moon className="h-4 w-4 text-[#1C1917]" />
+                <Moon className="h-4 w-4" />
               )}
             </button>
-            <Button variant="ghost" size="sm" onClick={onSkip}>
-              Open Demo Workspace
-            </Button>
           </div>
         </header>
       )}
@@ -359,23 +442,23 @@ export function SetupWizard({
             : 'flex-1 w-full max-w-4xl mx-auto px-4 py-8 lg:px-8 space-y-6'
         }
       >
-        {/* Header + 3-Step Simple Stepper */}
+        {/* Native Stepper Header */}
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
             <div>
               <p className="text-xs font-semibold text-[#DC2626] dark:text-[#FACC15] mb-1">
-                WENDORO Desktop & Android Setup · 3 Quick Steps
+                Native Desktop & Android Onboarding · Offline-First Storage
               </p>
               <h1 className="text-2xl font-bold tracking-tight text-[#1C1917] dark:text-stone-100">
-                Simple Software Setup & License Activation
+                Local Workspace & License Setup
               </h1>
               <p className="mt-1 text-sm text-[#57534E] dark:text-stone-400">
-                No cloud hosting required. Set up your company, register for your license key, and install on Desktop or Android.
+                Configure your local company store, verify your registration key, and start working offline immediately.
               </p>
             </div>
             {isModalOrEmbedded && (
               <Button variant="outline" size="sm" onClick={onSkip}>
-                Close Wizard
+                Return to Workspace
               </Button>
             )}
           </div>
@@ -385,12 +468,17 @@ export function SetupWizard({
               const Icon = s.icon;
               const isCurrent = step === s.num;
               const isDone = step > s.num;
+              const canJump =
+                s.num <= step ||
+                (s.num === 2 && Boolean(companyName.trim())) ||
+                (s.num === 3 && Boolean(companyName.trim()) && Boolean(activatedState));
+
               return (
                 <button
                   key={s.num}
                   type="button"
                   onClick={() => {
-                    if (s.num <= step || (s.num === 2 && companyName.trim())) setStep(s.num);
+                    if (canJump) setStep(s.num);
                   }}
                   className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
                     isCurrent
@@ -439,15 +527,15 @@ export function SetupWizard({
           </div>
         )}
 
-        {/* STEP 1: COMPANY & MODULES */}
+        {/* STEP 1: LOCAL COMPANY & OFFLINE MODULES */}
         {step === 1 && (
           <Surface padding="lg" className="space-y-6">
             <div>
               <h2 className="text-base font-semibold text-[#1C1917] dark:text-stone-100">
-                1. Business Profile & Active Apps
+                1. Local Company Profile & Business Apps
               </h2>
               <p className="text-xs text-[#57534E] dark:text-stone-400 mt-0.5">
-                Pick your region, enter your business name, and choose a ready-to-use module bundle.
+                All accounting ledgers, invoices, and inventory records are stored natively on this device.
               </p>
             </div>
 
@@ -469,9 +557,9 @@ export function SetupWizard({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="sm:col-span-2">
+              <div>
                 <label className="block text-xs font-medium text-[#1C1917] dark:text-stone-200 mb-1.5">
-                  Company / Business Name
+                  Company / Shop Name
                 </label>
                 <input
                   type="text"
@@ -484,7 +572,20 @@ export function SetupWizard({
 
               <div>
                 <label className="block text-xs font-medium text-[#1C1917] dark:text-stone-200 mb-1.5">
-                  City / HQ Branch
+                  Company Code
+                </label>
+                <input
+                  type="text"
+                  value={companyCode}
+                  onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+                  placeholder="APEX-01"
+                  className="w-full h-10 px-3 rounded-lg text-sm font-mono uppercase bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#1C1917] dark:text-stone-200 mb-1.5">
+                  HQ City
                 </label>
                 <input
                   type="text"
@@ -499,7 +600,7 @@ export function SetupWizard({
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-[#1C1917] dark:text-stone-200">
-                  Choose Industry Preset ({enabledModules.length} apps selected)
+                  Select Native App Bundle ({enabledModules.length} modules)
                 </span>
                 <button
                   type="button"
@@ -570,25 +671,25 @@ export function SetupWizard({
           </Surface>
         )}
 
-        {/* STEP 2: REGISTER & ACTIVATE LICENSE */}
+        {/* STEP 2: LOCAL DEVICE ACTIVATION & LICENSE REGISTRATION */}
         {step === 2 && (
           <Surface padding="lg" className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-[#1C1917] dark:text-stone-100">
-                  2. License Server Registration & Activation
+                  2. License Registration & Local Device Activation
                 </h2>
                 <p className="text-xs text-[#57534E] dark:text-stone-400 mt-0.5">
-                  Register an account to receive your WENDORO License Key, or activate an existing key for this Desktop/Android device.
+                  Verify or register a license key to bind <code className="font-mono">{deviceName}</code> ({devicePlatform}).
                 </p>
               </div>
 
               <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-stone-100 dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] self-start">
                 {(
                   [
-                    { id: 'register', label: 'Register & Get Key', icon: UserPlus },
                     { id: 'activate', label: 'Activate Key', icon: KeyRound },
-                    { id: 'signin', label: 'My Keys', icon: LogIn },
+                    { id: 'register', label: 'Register & Get Key', icon: UserPlus },
+                    { id: 'keys', label: 'My Keys', icon: LogIn },
                   ] as const
                 ).map((item) => {
                   const Icon = item.icon;
@@ -612,18 +713,18 @@ export function SetupWizard({
               </div>
             </div>
 
-            {/* Active License Banner */}
+            {/* Active License Status Card */}
             {activatedState && (
               <div className="p-4 rounded-xl border border-[#F59E0B]/60 bg-gradient-to-r from-[#DC2626]/8 via-amber-50 to-[#FACC15]/15 dark:from-[#DC2626]/20 dark:via-[#1B1417] dark:to-[#FACC15]/10 space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4 text-[#DC2626] dark:text-[#FACC15]" />
                     <span className="text-xs font-bold text-[#1C1917] dark:text-stone-100">
-                      Software Activated · {activatedState.planName}
+                      Device Activated · {activatedState.planName}
                     </span>
                   </div>
                   <span className="text-[11px] font-mono text-[#B45309] dark:text-[#FACC15] tabular-nums">
-                    {activatedState.usedDevices} / {activatedState.maxDevices} devices active
+                    {activatedState.usedDevices} / {activatedState.maxDevices} seats · {activatedState.platform}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-white/90 dark:bg-[#141013] border border-stone-200 dark:border-[#32242A]">
@@ -646,67 +747,116 @@ export function SetupWizard({
                     )}
                   </button>
                 </div>
-                <div className="text-[11px] text-[#57534E] dark:text-stone-400">
-                  Registered to <strong>{activatedState.email}</strong> · Organization:{' '}
-                  <strong>{activatedState.organizationName}</strong>
-                </div>
               </div>
             )}
 
-            {/* License Server URL Input */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-[#FAF9F7] dark:bg-[#141013] border border-stone-200 dark:border-[#32242A]">
-              <label className="text-xs font-medium text-[#57534E] dark:text-stone-400 shrink-0">
-                License Auth Server URL:
-              </label>
-              <input
-                type="url"
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-                placeholder="https://license.yourcompany.com"
-                className="flex-1 h-8 px-2.5 rounded-md text-xs font-mono bg-white dark:bg-[#1B1417] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
-              />
+            {/* Local Hardware ID & Optional Firebase Google Sign-In */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-[#FAF9F7] dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                {devicePlatform === 'android' ? (
+                  <Smartphone className="h-3.5 w-3.5 text-[#F59E0B] shrink-0" />
+                ) : (
+                  <Laptop className="h-3.5 w-3.5 text-[#DC2626] shrink-0" />
+                )}
+                <span className="text-[#57534E] dark:text-stone-400">Device ID:</span>
+                <code className="font-mono text-[11px] truncate">{deviceId}</code>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {isFirebaseConfigured && !user && (
+                  <Button variant="outline" size="sm" onClick={() => void signInWithGoogle()}>
+                    Sign In with Google
+                  </Button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowEndpointOverride((v) => !v)}
+                  className="text-[11px] font-medium text-[#57534E] dark:text-stone-400 hover:text-[#DC2626] cursor-pointer"
+                >
+                  {showEndpointOverride ? 'Hide server address' : 'Custom license server'}
+                </button>
+              </div>
             </div>
 
-            {licenseTab === 'register' && (
-              <form onSubmit={handleRegisterAndIssueKey} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium mb-1">Full Name</label>
+            {showEndpointOverride && !useFirebaseForLicense && (
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-lg bg-[#FAF9F7] dark:bg-[#141013] border border-stone-200 dark:border-[#32242A]">
+                <label className="text-xs font-medium text-[#57534E] dark:text-stone-400 shrink-0">
+                  License Server URL:
+                </label>
+                <input
+                  type="url"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  className="flex-1 h-8 px-2.5 rounded-md text-xs font-mono bg-white dark:bg-[#1B1417] border border-stone-200 dark:border-[#32242A]"
+                />
+              </div>
+            )}
+
+            {licenseTab === 'activate' && (
+              <form onSubmit={(e) => void handleActivateExistingKey(e)} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium mb-1.5">
+                    Enter Registration Key
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <input
                       type="text"
                       required
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Aarav Sharma"
-                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                      value={licenseKeyInput}
+                      onChange={(e) => setLicenseKeyInput(e.target.value.toUpperCase())}
+                      placeholder="WND-COMM-XXXXXXXX-XXXXXXXX"
+                      className="flex-1 h-10 px-3 rounded-lg text-sm font-mono tracking-wider bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">Work Email</label>
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="owner@company.com"
-                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">Account Password</label>
-                    <input
-                      type="password"
-                      required
-                      minLength={6}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Min 6 characters"
-                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
-                    />
+                    <Button type="submit" variant="primary" size="md" disabled={authLoading}>
+                      <KeyRound className="h-4 w-4" />
+                      {authLoading ? 'Verifying...' : 'Activate Device'}
+                    </Button>
                   </div>
                 </div>
+              </form>
+            )}
 
-                {/* Tier Selection */}
+            {licenseTab === 'register' && (
+              <form onSubmit={(e) => void handleRegisterAndIssueKey(e)} className="space-y-4">
+                {!useFirebaseForLicense && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Full Name</label>
+                      <input
+                        type="text"
+                        required
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="Aarav Sharma"
+                        className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Work Email</label>
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="owner@company.com"
+                        className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Account Password</label>
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Min 6 characters"
+                        className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold">Select License Edition</span>
@@ -729,7 +879,9 @@ export function SetupWizard({
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     {WENDORO_LICENSE_PLANS.filter((p) =>
-                      ['free', 'starter', 'business', 'professional', 'enterprise', 'self_hosted'].includes(p.tier),
+                      useFirebaseForLicense && !isBootstrapAdmin
+                        ? p.tier === 'free'
+                        : ['free', 'starter', 'business', 'professional', 'enterprise', 'self_hosted'].includes(p.tier),
                     ).map((plan) => {
                       const active = selectedTier === plan.tier;
                       const price =
@@ -762,7 +914,6 @@ export function SetupWizard({
                   </div>
                 </div>
 
-                {/* Target Native Software */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium text-[#57534E] dark:text-stone-400">
@@ -792,69 +943,59 @@ export function SetupWizard({
 
                   <Button type="submit" variant="primary" size="md" disabled={authLoading}>
                     <Sparkles className="h-4 w-4" />
-                    {authLoading ? 'Generating License Key...' : 'Register & Generate License Key'}
+                    {authLoading ? 'Generating Key...' : 'Register & Activate Key'}
                   </Button>
                 </div>
               </form>
             )}
 
-            {licenseTab === 'activate' && (
-              <form onSubmit={(e) => void handleActivateExistingKey(e)} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium mb-1.5">
-                    Enter WENDORO License Key
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="text"
-                      required
-                      value={licenseKeyInput}
-                      onChange={(e) => setLicenseKeyInput(e.target.value.toUpperCase())}
-                      placeholder="WND-COMM-XXXXXXXX-XXXXXXXX"
-                      className="flex-1 h-10 px-3 rounded-lg text-sm font-mono tracking-wider bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
-                    />
-                    <Button type="submit" variant="primary" size="md" disabled={authLoading}>
-                      <KeyRound className="h-4 w-4" />
-                      {authLoading ? 'Verifying...' : 'Verify & Activate'}
+            {licenseTab === 'keys' && (
+              <div className="space-y-4">
+                {useFirebaseForLicense ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[#57534E] dark:text-stone-400">
+                      Fetch keys registered to {user?.email}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={authLoading}
+                      onClick={() => void handleLoadKeys()}
+                    >
+                      <LogIn className="h-3.5 w-3.5" />
+                      {authLoading ? 'Loading...' : 'Refresh My Keys'}
                     </Button>
                   </div>
-                </div>
-                <p className="text-[11px] text-[#57534E] dark:text-stone-400">
-                  Your Desktop or Android client authenticates this key against the license server and binds this device seat securely.
-                </p>
-              </form>
-            )}
-
-            {licenseTab === 'signin' && (
-              <div className="space-y-4">
-                <form onSubmit={handleSignInRetrieveKeys} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-                  <div>
-                    <label className="block text-xs font-medium mb-1">Registered Email</label>
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="owner@company.com"
-                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">Password</label>
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
-                    />
-                  </div>
-                  <Button type="submit" variant="secondary" size="md" disabled={authLoading}>
-                    <LogIn className="h-4 w-4" />
-                    {authLoading ? 'Signing In...' : 'Fetch My Keys'}
-                  </Button>
-                </form>
+                ) : (
+                  <form onSubmit={(e) => void handleLoadKeys(e)} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Registered Email</label>
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="owner@company.com"
+                        className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Password</label>
+                      <input
+                        type="password"
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A]"
+                      />
+                    </div>
+                    <Button type="submit" variant="secondary" size="md" disabled={authLoading}>
+                      <LogIn className="h-4 w-4" />
+                      {authLoading ? 'Signing In...' : 'Fetch My Keys'}
+                    </Button>
+                  </form>
+                )}
 
                 {accountLicenses.length > 0 && (
                   <div className="space-y-2 pt-2">
@@ -878,7 +1019,7 @@ export function SetupWizard({
                           disabled={authLoading}
                           onClick={() => void handleActivateExistingKey(undefined, lic.licenseKey)}
                         >
-                          Activate This Device
+                          Bind This Device
                         </Button>
                       </div>
                     ))}
@@ -889,101 +1030,74 @@ export function SetupWizard({
           </Surface>
         )}
 
-        {/* STEP 3: DESKTOP & ANDROID INSTALLER */}
+        {/* STEP 3: LOCAL NATIVE STORAGE SUMMARY & LAUNCH */}
         {step === 3 && (
           <Surface padding="lg" className="space-y-6">
             <div>
               <h2 className="text-base font-semibold text-[#1C1917] dark:text-stone-100">
-                3. Install Native Desktop Software & Android App
+                3. Confirm Native Installation & Launch
               </h2>
               <p className="text-xs text-[#57534E] dark:text-stone-400 mt-0.5">
-                WENDORO runs offline-first natively on Desktop and Android, contacting the server only for license verification.
+                Review your local offline-first configuration and activated device license before entering the ERP.
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Native Desktop Card */}
-              <div className="p-4 rounded-xl border border-stone-200 dark:border-[#32242A] bg-[#FAF9F7]/70 dark:bg-[#141013] space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-[#DC2626] text-white flex items-center justify-center">
-                      <Laptop className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold">Desktop Software</div>
-                      <div className="text-[11px] text-[#57534E] dark:text-stone-400">
-                        Windows (.exe) · macOS (.dmg) · Linux (.AppImage)
-                      </div>
-                    </div>
-                  </div>
+              <div className="p-4 rounded-xl border border-stone-200 dark:border-[#32242A] bg-[#FAF9F7] dark:bg-[#141013] space-y-2.5 text-xs">
+                <div className="flex items-center gap-2 font-bold text-sm text-[#1C1917] dark:text-stone-100">
+                  <HardDrive className="h-4 w-4 text-[#DC2626]" />
+                  Local Workspace Profile
                 </div>
-                <p className="text-xs text-[#57534E] dark:text-stone-400 leading-relaxed">
-                  Packaged via Electron (`electron/main.cjs`) with local storage and offline invoice, inventory & POS support.
-                </p>
-                <div className="rounded-lg bg-[#181214] text-stone-100 p-2.5 font-mono text-[11px] flex items-center justify-between gap-2">
-                  <span className="truncate">npm run build && npm --prefix electron run dist:win</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void copyText('desk-cmd', 'npm run build && npm --prefix electron run dist:win')
-                    }
-                    className="text-[#FACC15] hover:underline shrink-0 cursor-pointer inline-flex items-center gap-1"
-                  >
-                    {copiedId === 'desk-cmd' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  </button>
+                <div className="flex justify-between gap-2 pt-1">
+                  <span className="text-[#57534E] dark:text-stone-400">Organization</span>
+                  <span className="font-semibold">{companyName || 'My Organization'}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-[#57534E] dark:text-stone-400">Company Code</span>
+                  <span className="font-mono font-semibold">
+                    {(companyCode.trim() || suggestCode(companyName || 'WND')).toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-[#57534E] dark:text-stone-400">HQ & Currency</span>
+                  <span className="font-medium">
+                    {branchCity || region.defaultCity} · {region.currency}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-[#57534E] dark:text-stone-400">Enabled Apps</span>
+                  <span className="font-semibold">{enabledModules.length} local modules</span>
                 </div>
               </div>
 
-              {/* Android App Card */}
-              <div className="p-4 rounded-xl border border-stone-200 dark:border-[#32242A] bg-[#FAF9F7]/70 dark:bg-[#141013] space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-[#FACC15] text-[#1C1917] flex items-center justify-center">
-                      <Smartphone className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold">Android Mobile App</div>
-                      <div className="text-[11px] text-[#57534E] dark:text-stone-400">
-                        Signed APK / AAB · Package: com.wendoro.erp
-                      </div>
-                    </div>
-                  </div>
+              <div className="p-4 rounded-xl border border-stone-200 dark:border-[#32242A] bg-[#FAF9F7] dark:bg-[#141013] space-y-2.5 text-xs">
+                <div className="flex items-center gap-2 font-bold text-sm text-[#1C1917] dark:text-stone-100">
+                  <ShieldCheck className="h-4 w-4 text-[#D97706] dark:text-[#FACC15]" />
+                  Verified Native License
                 </div>
-                <p className="text-xs text-[#57534E] dark:text-stone-400 leading-relaxed">
-                  Native Capacitor Android app (`capacitor.config.ts`) for mobile POS billing, field sales, and warehouse barcode scanning.
-                </p>
-                <div className="rounded-lg bg-[#181214] text-stone-100 p-2.5 font-mono text-[11px] flex items-center justify-between gap-2">
-                  <span className="truncate">npm run build && npx cap sync android</span>
-                  <button
-                    type="button"
-                    onClick={() => void copyText('and-cmd', 'npm run build && npx cap sync android')}
-                    className="text-[#FACC15] hover:underline shrink-0 cursor-pointer inline-flex items-center gap-1"
-                  >
-                    {copiedId === 'and-cmd' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  </button>
+                <div className="flex justify-between gap-2 pt-1">
+                  <span className="text-[#57534E] dark:text-stone-400">License Key</span>
+                  <code className="font-mono font-bold text-[#DC2626] dark:text-[#FACC15]">
+                    {activatedState?.licenseKey || licenseKeyInput}
+                  </code>
                 </div>
-              </div>
-            </div>
-
-            {/* Summary */}
-            <div className="p-4 rounded-xl border border-stone-200 dark:border-[#32242A] bg-white dark:bg-[#141013] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-              <div className="space-y-0.5">
-                <div className="font-semibold text-[#1C1917] dark:text-stone-100">
-                  {companyName || 'My Organization'} · {region.currency} · {enabledModules.length} Modules
+                <div className="flex justify-between gap-2">
+                  <span className="text-[#57534E] dark:text-stone-400">Edition</span>
+                  <span className="font-semibold">{activatedState?.planName ?? selectedTier}</span>
                 </div>
-                <div className="text-[#57534E] dark:text-stone-400 flex items-center gap-1.5">
-                  <Terminal className="h-3.5 w-3.5 text-[#DC2626]" />
-                  <span>
-                    License:{' '}
-                    <strong className="font-mono text-[#1C1917] dark:text-[#FACC15]">
-                      {activatedState?.licenseKey || licenseKeyInput || 'Evaluation Mode (Unlicensed)'}
-                    </strong>
+                <div className="flex justify-between gap-2">
+                  <span className="text-[#57534E] dark:text-stone-400">Device Binding</span>
+                  <span className="font-medium capitalize">
+                    {devicePlatform} · {deviceName}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-[#57534E] dark:text-stone-400">Storage Mode</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    100% Local Offline Store
                   </span>
                 </div>
               </div>
-              <span className="text-[11px] font-medium text-[#B45309] dark:text-[#FACC15]">
-                Ready to open offline-capable ERP
-              </span>
             </div>
           </Surface>
         )}
@@ -1012,7 +1126,7 @@ export function SetupWizard({
               disabled={launching}
               onClick={handleLaunch}
             >
-              {launching ? 'Launching...' : 'Launch WENDORO Workspace'}
+              {launching ? 'Initializing Local Store...' : 'Initialize Local Store & Launch'}
               <CheckCircle2 className="h-4 w-4" />
             </Button>
           )}

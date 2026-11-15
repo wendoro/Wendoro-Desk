@@ -138,7 +138,9 @@ interface TenantContextValue {
   setupCompleted: boolean;
   licenseKey?: string;
   licenseActivation?: LicenseActivationState;
+  isLicenseVerified: boolean;
   setLicenseActivation: (activation: LicenseActivationState | undefined) => void;
+  clearLicenseActivation: () => void;
   switchCompany: (companyId: string) => void;
   switchBranch: (branchId: string | null) => void;
   addBranchToActiveCompany: (branch: { code: string; name: string; city: string }) => void;
@@ -184,6 +186,17 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem(SETUP_STORAGE_KEY, JSON.stringify(payload));
   };
 
+  const isLicenseVerified = useMemo(() => {
+    if (!licenseActivation || !licenseActivation.licenseKey) return false;
+    if (licenseActivation.expiresAt) {
+      const expiryMs = Date.parse(licenseActivation.expiresAt);
+      if (!Number.isNaN(expiryMs) && expiryMs < Date.now()) {
+        return false;
+      }
+    }
+    return true;
+  }, [licenseActivation]);
+
   const setLicenseActivation = (activation: LicenseActivationState | undefined) => {
     const nextKey = activation?.licenseKey;
     const nextPrincipal = activation
@@ -193,6 +206,12 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     setLicenseKey(nextKey);
     if (activation) setPrincipal(nextPrincipal);
     persist(nextPrincipal, setupCompleted, nextKey, activation);
+  };
+
+  const clearLicenseActivation = () => {
+    setLicenseActivationState(undefined);
+    setLicenseKey(undefined);
+    persist(principal, setupCompleted, undefined, undefined);
   };
 
   const activeCompany = useMemo(() => {
@@ -390,7 +409,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         setupCompleted,
         licenseKey,
         licenseActivation,
+        isLicenseVerified,
         setLicenseActivation,
+        clearLicenseActivation,
         switchCompany,
         switchBranch,
         addBranchToActiveCompany,

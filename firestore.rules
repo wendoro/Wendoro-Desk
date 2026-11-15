@@ -40,6 +40,20 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/workspaces/$(companyId)/members/$(request.auth.uid));
     }
 
+    function isAdmin() {
+      return isVerifiedUser()
+        && (
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+          || request.auth.token.email == 'wendoro.dev@gmail.com'
+        );
+    }
+
+    function isLicenseOwner(licenseKey) {
+      return isVerifiedUser()
+        && exists(/databases/$(database)/documents/licenses/$(licenseKey))
+        && get(/databases/$(database)/documents/licenses/$(licenseKey)).data.ownerUid == request.auth.uid;
+    }
+
     // Validation Helpers (Anti-Update-Gap Blueprints)
     function isValidUserPrivateProfile(data, userId) {
       return data.keys().hasAll(['uid', 'email', 'fullName', 'createdAt', 'updatedAt'])
@@ -112,6 +126,48 @@ service cloud.firestore {
         && data.isRead is bool
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
+    }
+
+    function isValidLicenseRegistration(data, licenseKey) {
+      return data.keys().hasAll(['licenseKey', 'ownerUid', 'organizationName', 'planTier', 'platform', 'status', 'maxDevices', 'signature', 'expiresAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['licenseKey', 'ownerUid', 'organizationName', 'planTier', 'platform', 'status', 'maxDevices', 'signature', 'expiresAt', 'createdAt', 'updatedAt'])
+        && data.licenseKey is string && data.licenseKey.size() >= 12 && data.licenseKey.size() <= 64
+        && data.licenseKey.matches('^WND-[A-Z]{4}-[A-Z0-9]{8}-[A-Z0-9]{8}$')
+        && data.licenseKey == licenseKey
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.organizationName is string && data.organizationName.size() >= 1 && data.organizationName.size() <= 120
+        && data.planTier is string && data.planTier.size() >= 1 && data.planTier.size() <= 32
+        && data.planTier in ['free', 'starter', 'business', 'professional', 'enterprise', 'white_label', 'self_hosted']
+        && data.platform is string && data.platform.size() >= 1 && data.platform.size() <= 16
+        && data.platform in ['desktop', 'android', 'both']
+        && data.status is string && data.status.size() >= 1 && data.status.size() <= 16
+        && data.status in ['active', 'revoked', 'expired']
+        && data.maxDevices is int && data.maxDevices >= 1 && data.maxDevices <= 2000
+        && data.signature is string && data.signature.size() >= 8 && data.signature.size() <= 128
+        && data.signature.matches('^[A-Z0-9]+$')
+        && data.expiresAt is string && data.expiresAt.size() >= 4 && data.expiresAt.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidLicenseDeviceActivation(data, licenseKey, deviceId) {
+      return data.keys().hasAll(['deviceId', 'licenseKey', 'ownerUid', 'deviceName', 'platform', 'appVersion', 'activatedAt', 'lastVerifiedAt'])
+        && data.keys().hasOnly(['deviceId', 'licenseKey', 'ownerUid', 'deviceName', 'platform', 'appVersion', 'activatedAt', 'lastVerifiedAt'])
+        && data.deviceId is string && data.deviceId.size() >= 4 && data.deviceId.size() <= 128
+        && data.deviceId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.deviceId == deviceId
+        && data.licenseKey is string && data.licenseKey.size() >= 12 && data.licenseKey.size() <= 64
+        && data.licenseKey.matches('^WND-[A-Z]{4}-[A-Z0-9]{8}-[A-Z0-9]{8}$')
+        && data.licenseKey == licenseKey
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.deviceName is string && data.deviceName.size() >= 1 && data.deviceName.size() <= 100
+        && data.platform is string && data.platform.size() >= 1 && data.platform.size() <= 16
+        && data.platform in ['desktop', 'android', 'web']
+        && data.appVersion is string && data.appVersion.size() >= 1 && data.appVersion.size() <= 32
+        && data.activatedAt is timestamp
+        && data.lastVerifiedAt is timestamp;
     }
 
     // 1. User Private PII Profile
@@ -273,6 +329,86 @@ service cloud.firestore {
           && isValidId(notificationId)
           && isVerifiedUser()
           && resource.data.recipientUid == request.auth.uid;
+      }
+    }
+
+    // 3. Software License Keys & Device Bindings (Zero-PII Verification)
+    match /licenses/{licenseKey} {
+      allow get: if isValidId(licenseKey)
+        && isVerifiedUser()
+        && (isAdmin() || (resource != null && resource.data.ownerUid == request.auth.uid));
+
+      allow list: if isVerifiedUser()
+        && resource.data.ownerUid == request.auth.uid;
+
+      allow create: if isValidId(licenseKey)
+        && isVerifiedUser()
+        && isValidLicenseRegistration(incoming(), licenseKey)
+        && incoming().ownerUid == request.auth.uid
+        && incoming().status == 'active'
+        && (isAdmin() || (incoming().planTier == 'free' && incoming().maxDevices <= 3))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(licenseKey)
+        && isVerifiedUser()
+        && isValidLicenseRegistration(incoming(), licenseKey)
+        && incoming().licenseKey == existing().licenseKey
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['organizationName', 'planTier', 'platform', 'status', 'maxDevices', 'expiresAt', 'updatedAt']))
+          || (
+            existing().ownerUid == request.auth.uid
+            && existing().status == 'active'
+            && incoming().planTier == existing().planTier
+            && incoming().maxDevices == existing().maxDevices
+            && incoming().status == existing().status
+            && incoming().diff(existing()).affectedKeys().hasOnly(['organizationName', 'updatedAt'])
+          )
+        );
+
+      allow delete: if false;
+
+      // 3a. Device Activation Subcollection (Master Gate: Parent License Active + Owner)
+      match /devices/{deviceId} {
+        allow get: if isValidId(licenseKey)
+          && isValidId(deviceId)
+          && isVerifiedUser()
+          && (isAdmin() || isLicenseOwner(licenseKey));
+
+        allow list: if isVerifiedUser()
+          && resource.data.ownerUid == request.auth.uid;
+
+        allow create: if isValidId(licenseKey)
+          && isValidId(deviceId)
+          && isVerifiedUser()
+          && isValidLicenseDeviceActivation(incoming(), licenseKey, deviceId)
+          && incoming().ownerUid == request.auth.uid
+          && exists(/databases/$(database)/documents/licenses/$(licenseKey))
+          && get(/databases/$(database)/documents/licenses/$(licenseKey)).data.ownerUid == request.auth.uid
+          && get(/databases/$(database)/documents/licenses/$(licenseKey)).data.status == 'active'
+          && incoming().activatedAt == request.time
+          && incoming().lastVerifiedAt == request.time;
+
+        allow update: if isValidId(licenseKey)
+          && isValidId(deviceId)
+          && isVerifiedUser()
+          && isValidLicenseDeviceActivation(incoming(), licenseKey, deviceId)
+          && existing().ownerUid == request.auth.uid
+          && incoming().deviceId == existing().deviceId
+          && incoming().licenseKey == existing().licenseKey
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().activatedAt == existing().activatedAt
+          && incoming().lastVerifiedAt == request.time
+          && get(/databases/$(database)/documents/licenses/$(licenseKey)).data.status == 'active'
+          && incoming().diff(existing()).affectedKeys().hasOnly(['deviceName', 'platform', 'appVersion', 'lastVerifiedAt']);
+
+        allow delete: if isValidId(licenseKey)
+          && isValidId(deviceId)
+          && isVerifiedUser()
+          && (isAdmin() || isLicenseOwner(licenseKey));
       }
     }
   }

@@ -41,6 +41,21 @@ import { migrateBackupJsonToPostgres } from '@/src/db/client';
 import { AuthorizationError, authorizeCompanyAccess } from '@/src/server/security';
 import { decryptCredential, encryptCredential } from '@/src/server/crypto';
 import { LicenseServerError, createLicenseService } from '@/src/server/licensing';
+import {
+  LicenseRegistrationBlueprintSchema,
+  evaluateLicenseEntitlement,
+  validateLicenseKeyFormat,
+} from '@/src/lib/firebaseLicense';
+import {
+  buildInventoryTurnoverSeries,
+  buildMonthlySalesTrends,
+} from '@/src/core/engine/chartDataHelpers';
+import {
+  DashboardExportSnapshot,
+  buildExportFilename,
+  generateDashboardCsvReport,
+  generateDashboardPdfReport,
+} from '@/src/core/engine/dashboardExport';
 import type { SessionPrincipal } from '@/src/core/contracts/tenancy';
 import type { AuditLogRecord, ErpDatabaseState } from '@/src/core/store/erpTypes';
 
@@ -1032,5 +1047,282 @@ test('13. License authentication server registers users, issues signed keys, bin
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+test('14. Firebase license verification module validates key format, blueprint schema, revocation, expiry, platform scope, and device quota', () => {
+  // Format validation
+  const okFmt = validateLicenseKeyFormat('  wnd-prof-12ab34cd-98fe76dc  ');
+  assert.equal(okFmt.valid, true);
+  assert.equal(okFmt.normalized, 'WND-PROF-12AB34CD-98FE76DC');
+  assert.equal(okFmt.tierCode, 'PROF');
+
+  assert.equal(validateLicenseKeyFormat('INVALID-KEY').valid, false);
+  assert.equal(validateLicenseKeyFormat('WND-XXXX-12345678-12345678').valid, false);
+
+  // Blueprint schema validation rejects oversized/tampered documents
+  const validBlueprint = LicenseRegistrationBlueprintSchema.parse({
+    licenseKey: 'WND-PROF-12AB34CD-98FE76DC',
+    ownerUid: 'firebase-user-01',
+    organizationName: 'Crimson Logistics Pvt Ltd',
+    planTier: 'professional',
+    platform: 'both',
+    status: 'active',
+    maxDevices: 5,
+    signature: '98FE76DCABCDEF12',
+    expiresAt: '2028-01-01T00:00:00.000Z',
+  });
+  assert.equal(validBlueprint.planTier, 'professional');
+
+  assert.throws(() =>
+    LicenseRegistrationBlueprintSchema.parse({
+      licenseKey: 'WND-PROF-12AB34CD-98FE76DC',
+      ownerUid: 'bad uid with spaces!',
+      organizationName: 'Acme',
+      planTier: 'enterprise',
+      platform: 'both',
+      status: 'active',
+      maxDevices: 999999,
+      signature: '98FE76DC',
+      expiresAt: 'never',
+    }),
+  );
+
+  // Entitlement rules
+  const allowedDesktop = evaluateLicenseEntitlement({
+    license: validBlueprint,
+    currentPlatform: 'desktop',
+    boundDevicesCount: 2,
+    alreadyBoundOnThisDevice: false,
+    nowMs: Date.parse('2026-11-15T00:00:00.000Z'),
+  });
+  assert.equal(allowedDesktop.allowed, true);
+
+  const revoked = evaluateLicenseEntitlement({
+    license: { ...validBlueprint, status: 'revoked' },
+    currentPlatform: 'desktop',
+    boundDevicesCount: 1,
+    alreadyBoundOnThisDevice: true,
+  });
+  assert.equal(revoked.allowed, false);
+  assert.equal(revoked.code, 'LICENSE_INACTIVE');
+
+  const expired = evaluateLicenseEntitlement({
+    license: { ...validBlueprint, expiresAt: '2025-01-01T00:00:00.000Z' },
+    currentPlatform: 'desktop',
+    boundDevicesCount: 1,
+    alreadyBoundOnThisDevice: true,
+    nowMs: Date.parse('2026-11-15T00:00:00.000Z'),
+  });
+  assert.equal(expired.allowed, false);
+  assert.equal(expired.code, 'LICENSE_EXPIRED');
+
+  const wrongPlatform = evaluateLicenseEntitlement({
+    license: { ...validBlueprint, platform: 'android' },
+    currentPlatform: 'desktop',
+    boundDevicesCount: 0,
+    alreadyBoundOnThisDevice: false,
+  });
+  assert.equal(wrongPlatform.allowed, false);
+  assert.equal(wrongPlatform.code, 'PLATFORM_NOT_LICENSED');
+
+  const seatFull = evaluateLicenseEntitlement({
+    license: { ...validBlueprint, maxDevices: 2 },
+    currentPlatform: 'android',
+    boundDevicesCount: 2,
+    alreadyBoundOnThisDevice: false,
+  });
+  assert.equal(seatFull.allowed, false);
+  assert.equal(seatFull.code, 'ACTIVATION_LIMIT_REACHED');
+
+  // Already-bound device still refreshes cleanly even at maxDevices
+  const seatExisting = evaluateLicenseEntitlement({
+    license: { ...validBlueprint, maxDevices: 2 },
+    currentPlatform: 'android',
+    boundDevicesCount: 2,
+    alreadyBoundOnThisDevice: true,
+  });
+  assert.equal(seatExisting.allowed, true);
+});
+
+test('15. Recharts chart aggregators compute Monthly Sales Trends and Inventory Turnover from live orders and stock movements', () => {
+  let state = baseState();
+  const skuA = txAddCatalogueItem(state, SCOPE_A, {
+    sku: 'RED-PUMP',
+    name: 'Hydraulic Pump Red',
+    type: 'physical',
+    category: 'Machinery',
+    unit: 'Nos',
+    costPrice: 200,
+    sellingPrice: 450,
+    taxRate: 10,
+    trackStock: true,
+    stockOnHand: 10,
+    reorderLevel: 2,
+  });
+  state = skuA.nextState;
+
+  // Month 1 invoice ($990 total), partially paid ($500) and dispatched (2 units out -> 8 remaining)
+  const invOct = txCreateSalesOrder(state, SCOPE_A, {
+    documentType: 'invoice',
+    customerName: 'Apex Industries',
+    issueDate: '2026-10-14',
+    dueDate: '2026-10-30',
+    status: 'sent',
+    lines: [{ itemId: skuA.item.id, description: 'Hydraulic Pump Red', quantity: 2, unitPrice: 450, taxRate: 10 }],
+    notes: 'Oct batch',
+  });
+  state = invOct.nextState;
+  state = txDispatchSalesOrder(state, SCOPE_A, { orderId: invOct.order.id, dispatchDate: '2026-10-15' }).nextState;
+  state = txRecordSalesPayment(state, SCOPE_A, {
+    orderId: invOct.order.id,
+    amount: 500,
+    paymentDate: '2026-10-20',
+    method: 'bank',
+  }).nextState;
+
+  // Month 2 invoice ($1,485 total), fully paid and dispatched (3 units out -> 5 remaining)
+  const invNov = txCreateSalesOrder(state, SCOPE_A, {
+    documentType: 'invoice',
+    customerName: 'Beacon Logistics',
+    issueDate: '2026-11-05',
+    dueDate: '2026-11-20',
+    status: 'sent',
+    lines: [{ itemId: skuA.item.id, description: 'Hydraulic Pump Red', quantity: 3, unitPrice: 450, taxRate: 10 }],
+    notes: 'Nov batch',
+  });
+  state = invNov.nextState;
+  state = txDispatchSalesOrder(state, SCOPE_A, { orderId: invNov.order.id, dispatchDate: '2026-11-06' }).nextState;
+  state = txRecordSalesPayment(state, SCOPE_A, {
+    orderId: invNov.order.id,
+    amount: 1485,
+    paymentDate: '2026-11-08',
+    method: 'bank',
+  }).nextState;
+
+  const monthlyTrends = buildMonthlySalesTrends(state, 'month');
+  assert.equal(monthlyTrends.length, 2);
+  assert.equal(monthlyTrends[0]?.periodKey, '2026-10');
+  assert.equal(monthlyTrends[0]?.invoiced, 990);
+  assert.equal(monthlyTrends[0]?.collected, 500);
+  assert.equal(monthlyTrends[0]?.orderCount, 1);
+
+  assert.equal(monthlyTrends[1]?.periodKey, '2026-11');
+  assert.equal(monthlyTrends[1]?.invoiced, 1485);
+  assert.equal(monthlyTrends[1]?.collected, 1485);
+  assert.equal(monthlyTrends[1]?.orderCount, 1);
+
+  const turnover = buildInventoryTurnoverSeries(state);
+  assert.equal(turnover.length, 1);
+  assert.equal(turnover[0]?.sku, 'RED-PUMP');
+  assert.equal(turnover[0]?.unitsDispatched, 5);
+  assert.equal(turnover[0]?.stockOnHand, 5);
+  assert.equal(turnover[0]?.cogsOutValue, 1000);
+  assert.equal(turnover[0]?.assetValue, 1000);
+  assert.equal(turnover[0]?.turnoverRatio, 1);
+});
+
+test('16. Dashboard Export utility generates RFC-4180 CSV and valid binary PDF 1.4 reports offline', () => {
+  const snapshot: DashboardExportSnapshot = {
+    companyName: 'Crimson & Gold "Industries", LLC',
+    companyCode: 'CMP_01',
+    branchName: 'Main Warehouse',
+    currency: 'USD',
+    granularity: 'month',
+    generatedAt: '2026-11-15 10:15:00',
+    metrics: {
+      totalRevenue: 24750,
+      openReceivables: 4900,
+      totalExpenses: 11200,
+      openPayables: 2100,
+      netIncome: 13550,
+      inventoryAssetValue: 8600,
+      lowStockCount: 2,
+      openTasksCount: 4,
+      openTicketsCount: 1,
+      balancedJournalsCount: 18,
+      collectionRatePct: 80,
+      avgInventoryTurnover: 1.45,
+      totalDispatchedUnits: 32,
+    },
+    monthlySalesTrends: [
+      {
+        periodKey: '2026-10',
+        label: 'Oct 26',
+        invoiced: 9900,
+        collected: 7500,
+        expenses: 4200,
+        orderCount: 4,
+      },
+      {
+        periodKey: '2026-11',
+        label: 'Nov 26',
+        invoiced: 14850,
+        collected: 12350,
+        expenses: 7000,
+        orderCount: 6,
+      },
+    ],
+    inventoryTurnover: [
+      {
+        sku: 'RED-PUMP',
+        name: 'Hydraulic Pump, "Heavy Duty"',
+        unitsDispatched: 20,
+        stockOnHand: 8,
+        cogsOutValue: 4000,
+        assetValue: 1600,
+        turnoverRatio: 2.5,
+      },
+    ],
+    cashFlowSeries: [{ label: '2026-11', primary: 24750, secondary: 11200 }],
+    channelBars: [
+      { label: 'Direct B2B', primary: 18000, secondary: 14000 },
+      { label: 'Retail POS', primary: 6750, secondary: 5850 },
+    ],
+    balanceSlices: [
+      { label: 'Cash & Bank (1000)', value: 19850, color: '#F59E0B' },
+      { label: 'Receivables AR (1200)', value: 4900, color: '#DC2626' },
+    ],
+    topInventoryBars: [{ label: 'RED-PUMP', primary: 1600, secondary: 3600 }],
+  };
+
+  assert.equal(
+    buildExportFilename('CMP_01', 'pdf', '2026-11-15 10:15:00'),
+    'wendoro-cmp-01-business-metrics-2026-11-15.pdf',
+  );
+  assert.equal(
+    buildExportFilename('CMP_01', 'csv', '2026-11-15 10:15:00'),
+    'wendoro-cmp-01-business-metrics-2026-11-15.csv',
+  );
+
+  // Verify CSV content & RFC-4180 escaping
+  const csv = generateDashboardCsvReport(snapshot);
+  assert.ok(csv.startsWith('\uFEFFWENDORO ERP'));
+  assert.ok(csv.includes('"Crimson & Gold ""Industries"", LLC"'));
+  assert.ok(csv.includes('"Hydraulic Pump, ""Heavy Duty"""'));
+  assert.ok(csv.includes('SECTION 2: MONTHLY SALES TRENDS'));
+  assert.ok(csv.includes('SECTION 3: INVENTORY TURNOVER BY SKU'));
+  assert.ok(csv.includes('Oct 26,2026-10,4,9900.00,7500.00,4200.00,76%'));
+
+  // Verify binary PDF 1.4 structure and exact xref byte offsets
+  const pdfBytes = generateDashboardPdfReport(snapshot);
+  const pdfText = Buffer.from(pdfBytes).toString('latin1');
+  assert.ok(pdfText.startsWith('%PDF-1.4\n'));
+  assert.ok(pdfText.endsWith('%%EOF\n'));
+  assert.ok(pdfText.includes('/Type /Catalog'));
+  assert.ok(pdfText.includes('/BaseFont /Helvetica-Bold'));
+  assert.ok(pdfText.includes('WENDORO ERP - EXECUTIVE BUSINESS METRICS'));
+  assert.ok(pdfText.includes('RED-PUMP'));
+
+  // Validate xref byte offsets point cleanly to each "N 0 obj"
+  const xrefIdx = pdfText.indexOf('xref\n');
+  assert.ok(xrefIdx > 0);
+  const xrefBlock = pdfText.slice(xrefIdx);
+  const entryMatches = [...xrefBlock.matchAll(/(\d{10}) 00000 n /g)];
+  assert.ok(entryMatches.length >= 6);
+  entryMatches.forEach((m, i) => {
+    const offset = Number(m[1]);
+    const slice = pdfText.slice(offset, offset + 12);
+    assert.ok(slice.startsWith(`${i + 1} 0 obj`), `Expected object ${i + 1} at byte ${offset}, found "${slice}"`);
+  });
 });
 

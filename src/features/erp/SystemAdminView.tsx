@@ -6,6 +6,7 @@ import {
   Download,
   KeyRound,
   Layers,
+  Lock,
   MapPin,
   Plus,
   RotateCcw,
@@ -40,6 +41,7 @@ export function SystemAdminView({
     activeCompany,
     licenseKey,
     licenseActivation,
+    clearLicenseActivation,
     switchCompany,
     addBranchToActiveCompany,
     toggleCompanyModule,
@@ -198,9 +200,15 @@ export function SystemAdminView({
                 </div>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => onNavigate('setup')}>
-              Manage License / Company
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => clearLicenseActivation()}>
+                <Lock className="h-3.5 w-3.5 text-[#DC2626]" />
+                Lock & Re-Verify
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => onNavigate('setup')}>
+                Manage License / Company
+              </Button>
+            </div>
           </Surface>
 
           <section className="space-y-3">

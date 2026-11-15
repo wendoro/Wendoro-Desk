@@ -4,6 +4,7 @@ import {
   Building2,
   Check,
   ChevronDown,
+  Lock,
   MapPin,
   Menu,
   Moon,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { useTenant } from './TenantProvider';
+import { useErpData } from './ErpDataProvider';
 import { useFirebase } from './FirebaseProvider';
 import { PWAInstallButton } from '@/src/components/pwa/PWAInstallButton';
 
@@ -30,11 +32,14 @@ export function TopBar({
   onNavigate,
 }: TopBarProps) {
   const { theme, toggleTheme } = useTheme();
-  const { user, signInWithGoogle, signOutUser, connectionState } = useFirebase();
+  const { user, signOutUser } = useFirebase();
+  const { storageMode, syncState } = useErpData();
   const {
     principal,
     activeCompany,
     activeBranchId,
+    licenseActivation,
+    clearLicenseActivation,
     switchCompany,
     switchBranch,
     notifications,
@@ -371,11 +376,31 @@ export function TopBar({
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-[#57534E] dark:text-stone-400">Cloud Sync</span>
-                  <span className="font-medium text-[#B45309] dark:text-[#FACC15] capitalize">
-                    {connectionState}
+                  <span className="text-[#57534E] dark:text-stone-400">Local Storage</span>
+                  <span className="font-medium text-[#1C1917] dark:text-stone-100">
+                    {storageMode === 'indexeddb-dexie' ? 'IndexedDB (Dexie)' : 'Local Storage'}
                   </span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-[#57534E] dark:text-stone-400">Sync Queue</span>
+                  <span className="font-medium text-[#B45309] dark:text-[#FACC15]">
+                    {syncState.status === 'syncing'
+                      ? 'Syncing...'
+                      : syncState.pendingCount > 0
+                        ? `${syncState.pendingCount} Queued (${syncState.isOnline ? 'Online' : 'Offline'})`
+                        : syncState.isOnline
+                          ? 'Synced'
+                          : 'Offline Ready'}
+                  </span>
+                </div>
+                {licenseActivation && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#57534E] dark:text-stone-400">License Key</span>
+                    <span className="font-mono text-[10px] font-semibold text-[#DC2626] dark:text-[#FACC15] truncate">
+                      {licenseActivation.licenseKey}
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 {user ? (
@@ -401,6 +426,17 @@ export function TopBar({
                     Manage License Key
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearLicenseActivation();
+                    setProfileOpen(false);
+                  }}
+                  className="w-full h-8 rounded-lg border border-stone-200 dark:border-[#32242A] text-xs font-medium text-[#1C1917] dark:text-stone-100 hover:bg-stone-50 dark:hover:bg-[#251B20] cursor-pointer inline-flex items-center justify-center gap-1.5"
+                >
+                  <Lock className="h-3.5 w-3.5 text-[#DC2626]" />
+                  Lock & Switch License
+                </button>
                 <button
                   type="button"
                   onClick={() => {

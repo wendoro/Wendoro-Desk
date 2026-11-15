@@ -17,8 +17,11 @@ import { OperationsModulesView } from '@/src/features/erp/OperationsModulesView'
 import { SalesPurchaseView } from '@/src/features/erp/SalesPurchaseView';
 import { SystemAdminView } from '@/src/features/erp/SystemAdminView';
 import { WorkflowStudioView } from '@/src/features/erp/WorkflowStudioView';
+import { verifyLicenseWithServer } from '@/src/core/engine/licenseClient';
+import { reverifyActiveLicenseInFirebase } from '@/src/lib/firebaseLicense';
 import { DeploymentGuideView } from '@/src/features/foundation/DeploymentGuideView';
 import { ModuleRoadmapView } from '@/src/features/foundation/ModuleRoadmapView';
+import { LicenseGate } from '@/src/features/setup/LicenseGate';
 import { SetupWizard } from '@/src/features/setup/SetupWizard';
 
 const queryClient = new QueryClient({
@@ -32,8 +35,58 @@ const queryClient = new QueryClient({
 
 function WorkspaceRouter() {
   const [activeRoute, setActiveRoute] = useState<string>('overview');
-  const { activeCompany, setupCompleted, skipSetupWizard } = useTenant();
-  const { user, authReady, syncWorkspacePresence } = useFirebase();
+  const [verifyingStartup, setVerifyingStartup] = useState<boolean>(false);
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const {
+    activeCompany,
+    setupCompleted,
+    skipSetupWizard,
+    isLicenseVerified,
+    licenseActivation,
+    setLicenseActivation,
+    clearLicenseActivation,
+  } = useTenant();
+  const { user, authReady, isConfigured: isFirebaseConfigured, syncWorkspacePresence } = useFirebase();
+
+  useEffect(() => {
+    if (!isLicenseVerified || !licenseActivation) return;
+    let cancelled = false;
+
+    const verifyActiveSession = async () => {
+      if (licenseActivation.serverUrl.startsWith('firebase://')) {
+        if (!isFirebaseConfigured || !authReady) return;
+        setVerifyingStartup(true);
+        const check = await reverifyActiveLicenseInFirebase(licenseActivation);
+        if (cancelled) return;
+        setVerifyingStartup(false);
+        if (!check.valid) {
+          setStartupError(check.reason || 'Firebase license verification failed.');
+          clearLicenseActivation();
+        } else if (check.updatedActivation && !check.offlineGrace) {
+          setLicenseActivation(check.updatedActivation);
+        }
+        return;
+      }
+
+      try {
+        const res = await verifyLicenseWithServer({
+          serverUrl: licenseActivation.serverUrl,
+          licenseKey: licenseActivation.licenseKey,
+        });
+        if (!cancelled && !res.valid) {
+          setStartupError(res.message || 'License key is no longer valid on the license server.');
+          clearLicenseActivation();
+        }
+      } catch {
+        // Preserve offline native grace when license server is unreachable
+      }
+    };
+
+    void verifyActiveSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, isFirebaseConfigured, isLicenseVerified, licenseActivation?.licenseKey]);
 
   useEffect(() => {
     if (setupCompleted && authReady && user) {
@@ -84,6 +137,15 @@ function WorkspaceRouter() {
         return ['WENDORO', 'Operations', 'Dashboard'];
     }
   }, [activeRoute]);
+
+  if (!isLicenseVerified || verifyingStartup) {
+    return (
+      <LicenseGate
+        verifyingStartup={verifyingStartup}
+        startupError={startupError}
+      />
+    );
+  }
 
   if (!setupCompleted) {
     return (

@@ -20,3 +20,7 @@
 10. **Immutable Field Mutation**: Update `/workspaces/c1/notifications/n1` changing `recipientUid` or `createdAt`.
 11. **Oversized String DoS**: Update `/workspaces/c1/presence/u1` with 500KB `displayName`.
 12. **Blanket List Scraping**: User `u2` runs `list` on `/workspaces/c1/notifications` without `recipientUid == request.auth.uid`.
+13. **License Privilege Escalation**: Non-admin `u1` creates `/licenses/WND-ENTR-...` with `maxDevices: 99999` or updates `planTier`/`maxDevices`/`status` after creation.
+14. **Orphaned / Cross-Owner Device Activation**: User `u2` writes `/licenses/WND-PROF-.../devices/dev-1` when the parent license `ownerUid` is `u1`.
+15. **Revoked License Mutation**: User `u1` attempts to reactivate a `/licenses/WND-...` document after `status` reached terminal `'revoked'` or `'expired'`.
+
