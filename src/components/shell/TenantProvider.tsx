@@ -6,6 +6,7 @@ import {
   SubscriptionTier,
   hasPermission,
 } from '@/src/core/contracts/tenancy';
+import { LicenseActivationState } from '@/src/core/engine/licenseClient';
 
 export interface NotificationItem {
   id: string;
@@ -33,12 +34,14 @@ export interface SetupWizardInput {
   enabledModules: string[];
   subscriptionTier: SubscriptionTier;
   licenseKey?: string;
+  licenseActivation?: LicenseActivationState;
 }
 
 interface PersistedSetupState {
   setupCompleted: boolean;
   principal: SessionPrincipal;
   licenseKey?: string;
+  licenseActivation?: LicenseActivationState;
 }
 
 const SETUP_STORAGE_KEY = 'wendoro.setup.v2';
@@ -121,6 +124,7 @@ function loadPersistedState(): PersistedSetupState {
       setupCompleted: Boolean(parsed.setupCompleted),
       principal: validPrincipal,
       licenseKey: parsed.licenseKey,
+      licenseActivation: parsed.licenseActivation,
     };
   } catch {
     return { setupCompleted: false, principal: INITIAL_PRINCIPAL };
@@ -133,6 +137,8 @@ interface TenantContextValue {
   activeBranchId: string | null;
   setupCompleted: boolean;
   licenseKey?: string;
+  licenseActivation?: LicenseActivationState;
+  setLicenseActivation: (activation: LicenseActivationState | undefined) => void;
   switchCompany: (companyId: string) => void;
   switchBranch: (branchId: string | null) => void;
   addBranchToActiveCompany: (branch: { code: string; name: string; city: string }) => void;
@@ -157,20 +163,36 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [licenseKey, setLicenseKey] = useState<string | undefined>(
     initialState.licenseKey,
   );
+  const [licenseActivation, setLicenseActivationState] = useState<
+    LicenseActivationState | undefined
+  >(initialState.licenseActivation);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   const persist = (
     nextPrincipal: SessionPrincipal,
     nextCompleted: boolean,
     nextLicenseKey?: string,
+    nextLicenseActivation?: LicenseActivationState,
   ) => {
     if (typeof window === 'undefined') return;
     const payload: PersistedSetupState = {
       setupCompleted: nextCompleted,
       principal: nextPrincipal,
       licenseKey: nextLicenseKey,
+      licenseActivation: nextLicenseActivation,
     };
     window.localStorage.setItem(SETUP_STORAGE_KEY, JSON.stringify(payload));
+  };
+
+  const setLicenseActivation = (activation: LicenseActivationState | undefined) => {
+    const nextKey = activation?.licenseKey;
+    const nextPrincipal = activation
+      ? { ...principal, subscriptionTier: activation.planTier }
+      : principal;
+    setLicenseActivationState(activation);
+    setLicenseKey(nextKey);
+    if (activation) setPrincipal(nextPrincipal);
+    persist(nextPrincipal, setupCompleted, nextKey, activation);
   };
 
   const activeCompany = useMemo(() => {
@@ -190,7 +212,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         activeCompanyId: target.companyId,
         activeBranchId: target.defaultBranchId ?? null,
       };
-      persist(next, setupCompleted, licenseKey);
+      persist(next, setupCompleted, licenseKey, licenseActivation);
       return next;
     });
   };
@@ -198,7 +220,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const switchBranch = (branchId: string | null) => {
     setPrincipal((prev) => {
       const next = { ...prev, activeBranchId: branchId };
-      persist(next, setupCompleted, licenseKey);
+      persist(next, setupCompleted, licenseKey, licenseActivation);
       return next;
     });
   };
@@ -225,7 +247,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             : m,
         ),
       };
-      persist(next, setupCompleted, licenseKey);
+      persist(next, setupCompleted, licenseKey, licenseActivation);
       return next;
     });
   };
@@ -246,7 +268,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
           };
         }),
       };
-      persist(next, setupCompleted, licenseKey);
+      persist(next, setupCompleted, licenseKey, licenseActivation);
       return next;
     });
   };
@@ -318,16 +340,20 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       memberships: [newMembership, ...existingRealMemberships],
     });
 
-    const trimmedKey = input.licenseKey?.trim() || undefined;
+    const trimmedKey =
+      input.licenseActivation?.licenseKey ?? (input.licenseKey?.trim() || undefined);
     setPrincipal(nextPrincipal);
     setSetupCompleted(true);
     setLicenseKey(trimmedKey);
-    persist(nextPrincipal, true, trimmedKey);
+    setLicenseActivationState(input.licenseActivation);
+    persist(nextPrincipal, true, trimmedKey, input.licenseActivation);
 
     pushNotification({
       category: 'governance',
-      title: `${newMembership.companyName} Created`,
-      body: `${dedupedModules.length} modules activated (${input.subscriptionTier} tier).`,
+      title: `${newMembership.companyName} Ready`,
+      body: trimmedKey
+        ? `License ${trimmedKey} activated (${dedupedModules.length} modules).`
+        : `${dedupedModules.length} modules activated (${input.subscriptionTier} edition).`,
     });
 
     return newMembership;
@@ -335,7 +361,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   const skipSetupWizard = () => {
     setSetupCompleted(true);
-    persist(principal, true, licenseKey);
+    persist(principal, true, licenseKey, licenseActivation);
   };
 
   const resetSetupWizard = () => {
@@ -344,6 +370,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     }
     setPrincipal(INITIAL_PRINCIPAL);
     setLicenseKey(undefined);
+    setLicenseActivationState(undefined);
     setNotifications([]);
     setSetupCompleted(false);
   };
@@ -362,6 +389,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         activeBranchId: principal.activeBranchId,
         setupCompleted,
         licenseKey,
+        licenseActivation,
+        setLicenseActivation,
         switchCompany,
         switchBranch,
         addBranchToActiveCompany,

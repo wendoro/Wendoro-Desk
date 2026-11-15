@@ -33,7 +33,7 @@ export function IdentityTenancyView() {
         <p className="text-xs font-medium text-[#16B8A6] mb-1">
           Firebase Auth + Multi-Tenant RBAC
         </p>
-        <h1 className="text-2xl font-bold tracking-tight text-[#182238] dark:text-slate-100">
+        <h1 className="text-2xl font-bold tracking-tight text-[#1C1917] dark:text-slate-100">
           Identity & Multi-Tenancy Model
         </h1>
         <p className="mt-1.5 text-sm text-[#718096] dark:text-slate-400 max-w-3xl">
@@ -52,7 +52,7 @@ export function IdentityTenancyView() {
               Firebase Project: <span className="font-mono">{projectId}</span> · Firestore:{' '}
               <span className="capitalize font-medium text-[#16B8A6]">{connectionState}</span>
             </div>
-            <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+            <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
               {user
                 ? `Signed in via Google: ${user.displayName ?? user.email}`
                 : authReady
@@ -87,14 +87,14 @@ export function IdentityTenancyView() {
       <Surface>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="h-10 w-10 rounded-lg bg-[#4169F5]/10 text-[#4169F5] flex items-center justify-center shrink-0">
+            <div className="h-10 w-10 rounded-lg bg-[#DC2626]/10 text-[#DC2626] flex items-center justify-center shrink-0">
               <UserCheck className="h-5 w-5" />
             </div>
             <div>
               <div className="text-xs text-[#718096] dark:text-slate-400">
                 Global Identity Principal · identity.users
               </div>
-              <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
+              <h2 className="text-base font-semibold text-[#1C1917] dark:text-slate-100">
                 {user?.displayName ?? principal.fullName} ({user?.email ?? principal.email})
               </h2>
               <div className="mt-1 text-xs text-[#718096] dark:text-slate-400 font-mono">
@@ -114,7 +114,7 @@ export function IdentityTenancyView() {
 
       {/* Company Memberships Switcher Cards */}
       <section className="space-y-3">
-        <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
+        <h2 className="text-base font-semibold text-[#1C1917] dark:text-slate-100">
           Company Memberships & Distinct Role Assignments
         </h2>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -125,7 +125,7 @@ export function IdentityTenancyView() {
                 key={m.companyId}
                 className={
                   isCurrent
-                    ? 'ring-2 ring-[#4169F5] border-transparent'
+                    ? 'ring-2 ring-[#DC2626] border-transparent'
                     : ''
                 }
               >
@@ -134,21 +134,21 @@ export function IdentityTenancyView() {
                     <div className="text-xs font-mono text-[#718096] dark:text-slate-400">
                       {m.companyCode} · {m.countryCode} · {m.baseCurrency}
                     </div>
-                    <h3 className="mt-1 text-sm font-semibold text-[#182238] dark:text-slate-100">
+                    <h3 className="mt-1 text-sm font-semibold text-[#1C1917] dark:text-slate-100">
                       {m.companyName}
                     </h3>
                   </div>
                   <Building2
                     className={`h-4 w-4 shrink-0 ${
-                      isCurrent ? 'text-[#4169F5]' : 'text-[#718096]'
+                      isCurrent ? 'text-[#DC2626]' : 'text-[#718096]'
                     }`}
                   />
                 </div>
 
-                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-[#223257] space-y-1.5 text-xs">
+                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-[#32242A] space-y-1.5 text-xs">
                   <div className="flex justify-between">
                     <span className="text-[#718096] dark:text-slate-400">Role</span>
-                    <span className="font-semibold text-[#182238] dark:text-slate-100">
+                    <span className="font-semibold text-[#1C1917] dark:text-slate-100">
                       {m.roleName}
                     </span>
                   </div>
@@ -183,14 +183,14 @@ export function IdentityTenancyView() {
       <Surface>
         <div className="flex items-center justify-between gap-4 mb-4">
           <div>
-            <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100 flex items-center gap-2">
-              <KeyRound className="h-4 w-4 text-[#4169F5]" />
+            <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-[#DC2626]" />
               Effective Permission Evaluation ({activeCompany.companyName})
             </h2>
             <p className="text-xs text-[#718096] dark:text-slate-400 mt-0.5">
               Evaluated using <code className="font-mono">hasPermission(membership, key)</code>{' '}
               from <code className="font-mono">src/core/contracts/tenancy.ts</code> for role{' '}
-              <span className="font-semibold text-[#182238] dark:text-slate-200">
+              <span className="font-semibold text-[#1C1917] dark:text-slate-200">
                 {activeCompany.roleName}
               </span>
               .
@@ -198,7 +198,7 @@ export function IdentityTenancyView() {
           </div>
         </div>
 
-        <div className="divide-y divide-slate-200 dark:divide-[#223257]">
+        <div className="divide-y divide-slate-200 dark:divide-[#32242A]">
           {PERMISSION_PROBES.map((probe) => {
             const allowed = can(probe.key);
             return (
@@ -207,7 +207,7 @@ export function IdentityTenancyView() {
                 className="py-2.5 flex items-center justify-between gap-4 text-xs"
               >
                 <div>
-                  <div className="font-medium text-[#182238] dark:text-slate-100">
+                  <div className="font-medium text-[#1C1917] dark:text-slate-100">
                     {probe.label}
                   </div>
                   <div className="font-mono text-[11px] text-[#718096] dark:text-slate-400">

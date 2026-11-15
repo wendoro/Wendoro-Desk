@@ -1,0 +1,55 @@
+{
+  "name": "wendoro-erp-desktop",
+  "version": "1.0.0",
+  "description": "WENDORO ERP Desktop Application for Windows, macOS, and Linux",
+  "main": "main.cjs",
+  "author": "BakeWeb / WENDORO Open Source Contributors",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis",
+    "dist:mac": "electron-builder --mac dmg",
+    "dist:linux": "electron-builder --linux AppImage deb"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.wendoro.erp",
+    "productName": "WENDORO ERP",
+    "directories": {
+      "output": "../release/desktop"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist",
+        "to": "dist"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "../public/pwa-512x512.png"
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "target": ["dmg"],
+      "icon": "../public/pwa-512x512.png"
+    },
+    "linux": {
+      "category": "Office",
+      "target": ["AppImage", "deb"],
+      "icon": "../public/pwa-512x512.png"
+    }
+  }
+}

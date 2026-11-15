@@ -80,7 +80,7 @@ export function CatalogueView() {
       sortValue: (r) => r.name,
       render: (r) => (
         <div>
-          <div className="font-medium text-[#182238] dark:text-slate-100">{r.name}</div>
+          <div className="font-medium text-[#1C1917] dark:text-slate-100">{r.name}</div>
           <div className="text-[11px] text-[#718096] dark:text-slate-400 capitalize">
             {r.type} · {r.category} · {r.unit}
           </div>
@@ -157,7 +157,7 @@ export function CatalogueView() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#182238] dark:text-slate-100">
+          <h1 className="text-2xl font-bold tracking-tight text-[#1C1917] dark:text-slate-100">
             Universal Catalogue
           </h1>
           <p className="mt-1 text-xs text-[#718096] dark:text-slate-400">
@@ -173,7 +173,7 @@ export function CatalogueView() {
       {showForm && (
         <Surface padding="lg">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+            <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
               New Catalogue Entry
             </h2>
             {formError && (
@@ -187,7 +187,7 @@ export function CatalogueView() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Consulting Retainer or Laptop Pro"
-                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
               </div>
               <div>
@@ -197,7 +197,7 @@ export function CatalogueView() {
                   value={sku}
                   onChange={(e) => setSku(e.target.value.toUpperCase())}
                   placeholder="e.g. PRD-001"
-                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
               </div>
               <div>
@@ -209,7 +209,7 @@ export function CatalogueView() {
                     setType(nextType);
                     if (nextType !== 'physical') setTrackStock(false);
                   }}
-                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 >
                   <option value="physical">Physical Product</option>
                   <option value="service">Service</option>
@@ -223,7 +223,7 @@ export function CatalogueView() {
                   type="text"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
               </div>
               <div>
@@ -232,7 +232,7 @@ export function CatalogueView() {
                   type="text"
                   value={unit}
                   onChange={(e) => setUnit(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
               </div>
               <div>
@@ -242,7 +242,7 @@ export function CatalogueView() {
                   step="0.01"
                   value={costPrice}
                   onChange={(e) => setCostPrice(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
               </div>
               <div>
@@ -252,7 +252,7 @@ export function CatalogueView() {
                   step="0.01"
                   value={sellingPrice}
                   onChange={(e) => setSellingPrice(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
               </div>
               <div>
@@ -262,7 +262,7 @@ export function CatalogueView() {
                   step="0.01"
                   value={taxRate}
                   onChange={(e) => setTaxRate(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
               </div>
             </div>
@@ -288,7 +288,7 @@ export function CatalogueView() {
                         type="number"
                         value={stockOnHand}
                         onChange={(e) => setStockOnHand(e.target.value)}
-                        className="w-24 h-8 px-2.5 rounded-lg text-xs font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                        className="w-24 h-8 px-2.5 rounded-lg text-xs font-mono bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                       />
                     </div>
                     <div className="flex items-center gap-2">
@@ -299,7 +299,7 @@ export function CatalogueView() {
                         type="number"
                         value={reorderLevel}
                         onChange={(e) => setReorderLevel(e.target.value)}
-                        className="w-24 h-8 px-2.5 rounded-lg text-xs font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                        className="w-24 h-8 px-2.5 rounded-lg text-xs font-mono bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                       />
                     </div>
                   </>

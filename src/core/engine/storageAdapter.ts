@@ -15,7 +15,7 @@ const LEGACY_STORAGE_KEY = 'wendoro.erp.data.v1';
 
 function normalizeLoadedState(parsed: Partial<ErpDatabaseState>): ErpDatabaseState {
   return {
-    schemaVersion: typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : 2,
+    schemaVersion: typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : 3,
     sequences: parsed.sequences && typeof parsed.sequences === 'object' ? parsed.sequences : {},
     catalogue: Array.isArray(parsed.catalogue)
       ? parsed.catalogue.map((i) => ({
@@ -41,12 +41,18 @@ function normalizeLoadedState(parsed: Partial<ErpDatabaseState>): ErpDatabaseSta
                 : 0,
         }))
       : [],
+    creditNotes: Array.isArray(parsed.creditNotes) ? parsed.creditNotes : [],
+    posShifts: Array.isArray(parsed.posShifts) ? parsed.posShifts : [],
     purchaseOrders: Array.isArray(parsed.purchaseOrders)
       ? parsed.purchaseOrders.map((p) => ({
           ...p,
           amountPaid: typeof p.amountPaid === 'number' ? p.amountPaid : 0,
         }))
       : [],
+    purchaseRequisitions: Array.isArray(parsed.purchaseRequisitions) ? parsed.purchaseRequisitions : [],
+    warehouses: Array.isArray(parsed.warehouses) ? parsed.warehouses : [],
+    stockTransfers: Array.isArray(parsed.stockTransfers) ? parsed.stockTransfers : [],
+    shipments: Array.isArray(parsed.shipments) ? parsed.shipments : [],
     stockMovements: Array.isArray(parsed.stockMovements) ? parsed.stockMovements : [],
     inventoryLots: Array.isArray(parsed.inventoryLots) ? parsed.inventoryLots : [],
     stockReservations: Array.isArray(parsed.stockReservations) ? parsed.stockReservations : [],
@@ -55,12 +61,30 @@ function normalizeLoadedState(parsed: Partial<ErpDatabaseState>): ErpDatabaseSta
     journals: Array.isArray(parsed.journals) ? parsed.journals : [],
     paymentAllocations: Array.isArray(parsed.paymentAllocations) ? parsed.paymentAllocations : [],
     ledgerEntries: Array.isArray(parsed.ledgerEntries) ? parsed.ledgerEntries : [],
+    fixedAssets: Array.isArray(parsed.fixedAssets) ? parsed.fixedAssets : [],
+    budgets: Array.isArray(parsed.budgets) ? parsed.budgets : [],
+    expenseClaims: Array.isArray(parsed.expenseClaims) ? parsed.expenseClaims : [],
+    bankTransactions: Array.isArray(parsed.bankTransactions) ? parsed.bankTransactions : [],
+    boms: Array.isArray(parsed.boms) ? parsed.boms : [],
+    workOrders: Array.isArray(parsed.workOrders) ? parsed.workOrders : [],
+    qualityInspections: Array.isArray(parsed.qualityInspections) ? parsed.qualityInspections : [],
+    maintenanceSchedules: Array.isArray(parsed.maintenanceSchedules) ? parsed.maintenanceSchedules : [],
     employees: Array.isArray(parsed.employees) ? parsed.employees : [],
     payrollRuns: Array.isArray(parsed.payrollRuns) ? parsed.payrollRuns : [],
+    leaveRequests: Array.isArray(parsed.leaveRequests) ? parsed.leaveRequests : [],
+    attendanceLogs: Array.isArray(parsed.attendanceLogs) ? parsed.attendanceLogs : [],
+    jobOpenings: Array.isArray(parsed.jobOpenings) ? parsed.jobOpenings : [],
+    candidates: Array.isArray(parsed.candidates) ? parsed.candidates : [],
+    performanceGoals: Array.isArray(parsed.performanceGoals) ? parsed.performanceGoals : [],
     projectTasks: Array.isArray(parsed.projectTasks) ? parsed.projectTasks : [],
+    timesheets: Array.isArray(parsed.timesheets) ? parsed.timesheets : [],
     supportTickets: Array.isArray(parsed.supportTickets) ? parsed.supportTickets : [],
+    kbArticles: Array.isArray(parsed.kbArticles) ? parsed.kbArticles : [],
     documents: Array.isArray(parsed.documents) ? parsed.documents : [],
     campaigns: Array.isArray(parsed.campaigns) ? parsed.campaigns : [],
+    approvalRules: Array.isArray(parsed.approvalRules) ? parsed.approvalRules : [],
+    customFields: Array.isArray(parsed.customFields) ? parsed.customFields : [],
+    biReports: Array.isArray(parsed.biReports) ? parsed.biReports : [],
     industryRecords: Array.isArray(parsed.industryRecords) ? parsed.industryRecords : [],
     auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
   };

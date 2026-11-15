@@ -11,13 +11,13 @@ import {
 import { formatNumericCurrency } from '@/src/lib/utils';
 
 const PALETTE_TOKENS = [
-  { name: 'Midnight Navy', hex: '#101B35', role: 'Navigation Rail & Dark Surface' },
-  { name: 'Electric Blue', hex: '#4169F5', role: 'Primary Actions & Focus Ring' },
-  { name: 'Violet', hex: '#8B5CF6', role: 'Industry Extensions & AI Highlights' },
+  { name: 'Crimson Obsidian', hex: '#1B1417', role: 'Navigation Rail & Dark Surface' },
+  { name: 'Crimson Red', hex: '#DC2626', role: 'Primary Actions & Focus Ring' },
+  { name: 'Golden Amber', hex: '#F59E0B', role: 'Secondary Highlights & Warnings' },
   { name: 'Teal', hex: '#16B8A6', role: 'Nominal / Active & Verified State' },
-  { name: 'Background Light', hex: '#F6F8FC', role: 'Light Workspace Canvas' },
+  { name: 'Background Light', hex: '#FAF9F7', role: 'Light Workspace Canvas' },
   { name: 'Surface', hex: '#FFFFFF', role: 'Primary Elevated Surface' },
-  { name: 'Text Primary', hex: '#182238', role: 'High-Contrast Copy' },
+  { name: 'Text Primary', hex: '#1C1917', role: 'High-Contrast Copy' },
   { name: 'Muted Text', hex: '#718096', role: 'Secondary Metadata & Labels' },
 ];
 
@@ -39,8 +39,8 @@ export function DesignSystemView() {
             {r.edition === 'open_source'
               ? 'Open-Source (Apache-2.0)'
               : r.edition === 'commercial'
-                ? 'Commercial Cloud'
-                : 'OEM / Self-Hosted'}
+                ? 'Commercial License'
+                : 'OEM / Native App'}
           </div>
         </div>
       ),
@@ -91,10 +91,10 @@ export function DesignSystemView() {
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-medium text-[#4169F5] mb-1">
+          <p className="text-xs font-medium text-[#DC2626] mb-1">
             WENDORO UI Foundation · Light & Dark Tokens
           </p>
-          <h1 className="text-2xl font-bold tracking-tight text-[#182238] dark:text-slate-100">
+          <h1 className="text-2xl font-bold tracking-tight text-[#1C1917] dark:text-slate-100">
             Design System Specimen
           </h1>
           <p className="mt-1.5 text-sm text-[#718096] dark:text-slate-400 max-w-2xl">
@@ -111,7 +111,7 @@ export function DesignSystemView() {
             </>
           ) : (
             <>
-              <Moon className="h-4 w-4 text-[#4169F5]" />
+              <Moon className="h-4 w-4 text-[#DC2626]" />
               Switch to Dark Mode
             </>
           )}
@@ -120,21 +120,21 @@ export function DesignSystemView() {
 
       {/* Color Palette */}
       <Surface>
-        <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100 mb-4">
+        <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 mb-4">
           Approved WENDORO Palette
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {PALETTE_TOKENS.map((token) => (
             <div
               key={token.name}
-              className="rounded-lg border border-slate-200 dark:border-[#223257] overflow-hidden"
+              className="rounded-lg border border-slate-200 dark:border-[#32242A] overflow-hidden"
             >
               <div
-                className="h-12 w-full border-b border-slate-200/70 dark:border-[#223257]"
+                className="h-12 w-full border-b border-slate-200/70 dark:border-[#32242A]"
                 style={{ backgroundColor: token.hex }}
               />
-              <div className="p-2.5 bg-white dark:bg-[#0E172E]">
-                <div className="text-xs font-semibold text-[#182238] dark:text-slate-100">
+              <div className="p-2.5 bg-white dark:bg-[#141013]">
+                <div className="text-xs font-semibold text-[#1C1917] dark:text-slate-100">
                   {token.name}
                 </div>
                 <div className="font-mono text-[11px] text-[#718096] dark:text-slate-400">
@@ -152,7 +152,7 @@ export function DesignSystemView() {
       {/* Typography & Controls */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Surface>
-          <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100 mb-4">
+          <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 mb-4">
             Typography Hierarchy (2+1 System)
           </h2>
           <div className="space-y-4">
@@ -160,7 +160,7 @@ export function DesignSystemView() {
               <div className="text-[11px] text-[#718096] dark:text-slate-400">
                 Display · Plus Jakarta Sans
               </div>
-              <div className="font-display text-xl font-bold text-[#182238] dark:text-slate-100">
+              <div className="font-display text-xl font-bold text-[#1C1917] dark:text-slate-100">
                 Universal Multi-Tenant Operations
               </div>
             </div>
@@ -168,7 +168,7 @@ export function DesignSystemView() {
               <div className="text-[11px] text-[#718096] dark:text-slate-400">
                 Body Prose · DM Sans
               </div>
-              <p className="text-sm text-[#182238] dark:text-slate-200 leading-relaxed">
+              <p className="text-sm text-[#1C1917] dark:text-slate-200 leading-relaxed">
                 Clean, dense, scannable enterprise interfaces prioritizing information clarity
                 and keyboard accessibility over decorative visual noise.
               </p>
@@ -177,7 +177,7 @@ export function DesignSystemView() {
               <div className="text-[11px] text-[#718096] dark:text-slate-400">
                 Tabular Financials & Keys · JetBrains Mono
               </div>
-              <div className="font-mono text-sm tabular-nums text-[#182238] dark:text-slate-100">
+              <div className="font-mono text-sm tabular-nums text-[#1C1917] dark:text-slate-100">
                 {formatNumericCurrency('148920.4500', 'USD', 4)} · TENANT_RLS_VERIFIED
               </div>
             </div>
@@ -185,7 +185,7 @@ export function DesignSystemView() {
         </Surface>
 
         <Surface>
-          <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100 mb-4">
+          <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 mb-4">
             Interactive Button Primitives
           </h2>
           <div className="flex flex-wrap items-center gap-3">
@@ -206,7 +206,7 @@ export function DesignSystemView() {
       <section className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
+            <h2 className="text-base font-semibold text-[#1C1917] dark:text-slate-100">
               Open-Source & Commercial License Matrix
             </h2>
             <p className="text-xs text-[#718096] dark:text-slate-400">
@@ -216,7 +216,7 @@ export function DesignSystemView() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-200/70 dark:bg-[#162342]">
+            <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-200/70 dark:bg-[#251B20]">
               {(['INR', 'USD'] as const).map((cur) => (
                 <button
                   key={cur}
@@ -224,8 +224,8 @@ export function DesignSystemView() {
                   onClick={() => setCurrency(cur)}
                   className={`px-2.5 py-1 text-xs font-medium rounded-md cursor-pointer whitespace-nowrap ${
                     currency === cur
-                      ? 'bg-white dark:bg-[#101B35] text-[#182238] dark:text-slate-100 shadow-xs'
-                      : 'text-[#718096] dark:text-slate-400 hover:text-[#182238] dark:hover:text-slate-100'
+                      ? 'bg-white dark:bg-[#1B1417] text-[#1C1917] dark:text-slate-100 shadow-xs'
+                      : 'text-[#718096] dark:text-slate-400 hover:text-[#1C1917] dark:hover:text-slate-100'
                   }`}
                 >
                   {cur}
@@ -233,7 +233,7 @@ export function DesignSystemView() {
               ))}
             </div>
 
-            <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-200/70 dark:bg-[#162342]">
+            <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-200/70 dark:bg-[#251B20]">
               {(['populated', 'loading', 'empty', 'error'] as const).map((state) => (
                 <button
                   key={state}
@@ -241,8 +241,8 @@ export function DesignSystemView() {
                   onClick={() => setTableState(state)}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md capitalize cursor-pointer whitespace-nowrap ${
                     tableState === state
-                      ? 'bg-white dark:bg-[#101B35] text-[#182238] dark:text-slate-100 shadow-xs'
-                      : 'text-[#718096] dark:text-slate-400 hover:text-[#182238] dark:hover:text-slate-100'
+                      ? 'bg-white dark:bg-[#1B1417] text-[#1C1917] dark:text-slate-100 shadow-xs'
+                      : 'text-[#718096] dark:text-slate-400 hover:text-[#1C1917] dark:hover:text-slate-100'
                   }`}
                 >
                   {state}

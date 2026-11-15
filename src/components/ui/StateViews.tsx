@@ -11,11 +11,11 @@ export function LoadingState({
 }) {
   return (
     <div role="status" aria-label={label} className="space-y-3 py-2">
-      <div className="h-9 w-full rounded-lg bg-slate-100 dark:bg-[#162342] animate-pulse" />
+      <div className="h-9 w-full rounded-lg bg-slate-100 dark:bg-[#251B20] animate-pulse" />
       {Array.from({ length: rows }).map((_, index) => (
         <div
           key={index}
-          className="h-10 w-full rounded-lg bg-slate-100/70 dark:bg-[#162342]/70 animate-pulse"
+          className="h-10 w-full rounded-lg bg-slate-100/70 dark:bg-[#251B20]/70 animate-pulse"
         />
       ))}
     </div>
@@ -34,11 +34,11 @@ export function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center text-center py-12 px-6 border border-dashed border-slate-200 dark:border-[#223257] rounded-xl bg-slate-50/50 dark:bg-[#0E172E]">
-      <div className="h-10 w-10 rounded-lg bg-slate-100 dark:bg-[#162342] flex items-center justify-center text-[#718096] dark:text-slate-400 mb-3">
+    <div className="flex flex-col items-center justify-center text-center py-12 px-6 border border-dashed border-slate-200 dark:border-[#32242A] rounded-xl bg-slate-50/50 dark:bg-[#141013]">
+      <div className="h-10 w-10 rounded-lg bg-slate-100 dark:bg-[#251B20] flex items-center justify-center text-[#718096] dark:text-slate-400 mb-3">
         <Inbox className="h-5 w-5" aria-hidden="true" />
       </div>
-      <h3 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+      <h3 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
         {title}
       </h3>
       <p className="mt-1 text-sm text-[#718096] dark:text-slate-400 max-w-md">

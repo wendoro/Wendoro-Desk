@@ -43,12 +43,18 @@ export interface TransactionScope {
 }
 
 export const EMPTY_ERP_DATABASE_STATE: ErpDatabaseState = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   sequences: {},
   catalogue: [],
   contacts: [],
   salesOrders: [],
+  creditNotes: [],
+  posShifts: [],
   purchaseOrders: [],
+  purchaseRequisitions: [],
+  warehouses: [],
+  stockTransfers: [],
+  shipments: [],
   stockMovements: [],
   inventoryLots: [],
   stockReservations: [],
@@ -57,12 +63,30 @@ export const EMPTY_ERP_DATABASE_STATE: ErpDatabaseState = {
   journals: [],
   paymentAllocations: [],
   ledgerEntries: [],
+  fixedAssets: [],
+  budgets: [],
+  expenseClaims: [],
+  bankTransactions: [],
+  boms: [],
+  workOrders: [],
+  qualityInspections: [],
+  maintenanceSchedules: [],
   employees: [],
   payrollRuns: [],
+  leaveRequests: [],
+  attendanceLogs: [],
+  jobOpenings: [],
+  candidates: [],
+  performanceGoals: [],
   projectTasks: [],
+  timesheets: [],
   supportTickets: [],
+  kbArticles: [],
   documents: [],
   campaigns: [],
+  approvalRules: [],
+  customFields: [],
+  biReports: [],
   industryRecords: [],
   auditLogs: [],
 };
@@ -128,11 +152,16 @@ export function computeOrderTotals(
     if (!Number.isFinite(line.unitPrice) || line.unitPrice < 0) {
       throw new ErpDomainError('INVALID_PRICE', `Line ${idx + 1} unit price cannot be negative.`);
     }
+    const discountRate = line.discountRate ?? 0;
+    if (!Number.isFinite(discountRate) || discountRate < 0 || discountRate > 100) {
+      throw new ErpDomainError('INVALID_DISCOUNT', `Line ${idx + 1} discount must be between 0 and 100%.`);
+    }
     if (!Number.isFinite(line.taxRate) || line.taxRate < 0) {
       throw new ErpDomainError('INVALID_TAX', `Line ${idx + 1} tax rate cannot be negative.`);
     }
 
-    const base = roundMoney(line.quantity * line.unitPrice);
+    const gross = roundMoney(line.quantity * line.unitPrice);
+    const base = roundMoney(gross * (1 - discountRate / 100));
     const tax = roundMoney((base * line.taxRate) / 100);
     subtotal = roundMoney(subtotal + base);
     taxTotal = roundMoney(taxTotal + tax);
@@ -140,6 +169,7 @@ export function computeOrderTotals(
     return {
       ...line,
       id: createUuid(),
+      discountRate,
       description: line.description.trim(),
       lineTotal: roundMoney(base + tax),
     };
@@ -749,6 +779,13 @@ export function txCreateSalesOrder(
     lines: Array<Omit<OrderLineItem, 'id' | 'lineTotal'>>;
     notes: string;
     isImmediatePosSale?: boolean;
+    paymentMethod?: PaymentAllocation['method'];
+    salesperson?: string;
+    commissionRate?: number;
+    isRecurring?: boolean;
+    recurringInterval?: 'monthly' | 'quarterly' | 'annual';
+    isDropShip?: boolean;
+    channel?: 'direct' | 'pos' | 'ecommerce';
   },
 ): { nextState: ErpDatabaseState; order: SalesOrder } {
   const { nextState, result } = runAtomicTransaction(state, (draft) => {
@@ -780,6 +817,12 @@ export function txCreateSalesOrder(
       notes: input.notes,
       stockPosted: false,
       ledgerPosted: false,
+      salesperson: input.salesperson?.trim() || undefined,
+      commissionRate: input.commissionRate,
+      isRecurring: input.isRecurring,
+      recurringInterval: input.recurringInterval,
+      isDropShip: input.isDropShip,
+      channel: input.channel ?? (input.isImmediatePosSale ? 'pos' : 'direct'),
       createdAt: nowIso(),
     };
 
@@ -788,14 +831,11 @@ export function txCreateSalesOrder(
       salesOrders: [order, ...seqRes.nextState.salesOrders],
     };
 
-    // Important Inventory Integrity rule:
-    // Sending or invoicing does NOT deduct stock! It reserves stock (for non-POS invoices)
-    // and recognizes AR + Sales Revenue + Output Tax. Only an explicit dispatch event deducts stock.
     if (order.documentType === 'invoice' && (order.status === 'sent' || order.status === 'paid')) {
       const rec = postSalesRecognitionJournal(nextState, scope, order);
       nextState = rec.nextState;
 
-      if (!input.isImmediatePosSale) {
+      if (!input.isImmediatePosSale && !input.isDropShip) {
         nextState = reserveStockForOrder(nextState, scope, order);
         const hasTrackedItems = order.lines.some((l) => {
           const item = nextState.catalogue.find((c) => c.id === l.itemId);
@@ -812,14 +852,52 @@ export function txCreateSalesOrder(
       }
 
       if (order.status === 'paid') {
+        const payMethod = input.paymentMethod ?? (input.isImmediatePosSale ? 'cash' : 'bank');
         const payRes = txRecordSalesPayment(nextState, scope, {
           orderId: order.id,
           amount: order.grandTotal,
           paymentDate: order.issueDate,
-          method: input.isImmediatePosSale ? 'cash' : 'bank',
+          method: payMethod,
           reference: `${order.documentNumber}-SETTLE`,
         });
         nextState = payRes.nextState;
+
+        if (input.isImmediatePosSale) {
+          const openShift = nextState.posShifts.find(
+            (s) => s.companyId === scope.companyId && s.status === 'open',
+          );
+          if (openShift) {
+            const isCash = payMethod === 'cash';
+            const cashSalesTotal = roundMoney(openShift.cashSalesTotal + (isCash ? order.grandTotal : 0));
+            const cardUpiSalesTotal = roundMoney(openShift.cardUpiSalesTotal + (isCash ? 0 : order.grandTotal));
+            nextState = {
+              ...nextState,
+              posShifts: nextState.posShifts.map((s) =>
+                s.id === openShift.id
+                  ? {
+                      ...s,
+                      cashSalesTotal,
+                      cardUpiSalesTotal,
+                      expectedCash: roundMoney(openShift.openingCash + cashSalesTotal),
+                    }
+                  : s,
+              ),
+            };
+          }
+          if (input.customerId) {
+            const earnedPts = Math.floor(order.grandTotal / 100);
+            if (earnedPts > 0) {
+              nextState = {
+                ...nextState,
+                contacts: nextState.contacts.map((c) =>
+                  c.id === input.customerId
+                    ? { ...c, loyaltyPoints: (c.loyaltyPoints ?? 0) + earnedPts }
+                    : c,
+                ),
+              };
+            }
+          }
+        }
       }
 
       if (input.isImmediatePosSale) {
@@ -1183,6 +1261,7 @@ export function txCreatePurchaseOrder(
     status: PurchaseStatus;
     lines: Array<Omit<OrderLineItem, 'id' | 'lineTotal'>>;
     notes: string;
+    approvedBy?: string;
   },
 ): { nextState: ErpDatabaseState; order: PurchaseOrder } {
   const { nextState, result } = runAtomicTransaction(state, (draft) => {
@@ -1190,6 +1269,16 @@ export function txCreatePurchaseOrder(
       throw new ErpDomainError('INVALID_VENDOR', 'Vendor name is required.');
     }
     const totals = computeOrderTotals(input.lines);
+
+    const triggeredRule = draft.approvalRules.find(
+      (r) =>
+        r.companyId === scope.companyId &&
+        r.active &&
+        r.module === 'purchase' &&
+        totals.grandTotal >= r.minAmount,
+    );
+    const needsApproval = Boolean(triggeredRule && !input.approvedBy);
+
     const seqRes = nextSequenceNumber(draft, scope.companyId, 'PO', 4);
     const created: PurchaseOrder = {
       id: createUuid(),
@@ -1200,15 +1289,19 @@ export function txCreatePurchaseOrder(
       vendorName: input.vendorName.trim(),
       orderDate: input.orderDate,
       expectedDate: input.expectedDate,
-      status: input.status === 'received' ? 'ordered' : input.status,
+      status: needsApproval ? 'draft' : input.status === 'received' ? 'ordered' : input.status,
       lines: totals.lines,
       subtotal: totals.subtotal,
       taxTotal: totals.taxTotal,
       grandTotal: totals.grandTotal,
       amountPaid: 0,
-      notes: input.notes,
+      notes: needsApproval
+        ? `${input.notes ? `${input.notes} · ` : ''}Held by approval rule "${triggeredRule?.name}" (>= ${triggeredRule?.minAmount})`
+        : input.notes,
       stockPosted: false,
       ledgerPosted: false,
+      requiresApproval: needsApproval,
+      approvedBy: input.approvedBy,
       createdAt: nowIso(),
     };
 
@@ -1217,7 +1310,7 @@ export function txCreatePurchaseOrder(
       purchaseOrders: [created, ...seqRes.nextState.purchaseOrders],
     };
 
-    if (input.status === 'received') {
+    if (input.status === 'received' && !needsApproval) {
       const recRes = txReceivePurchaseOrder(nextState, scope, {
         orderId: created.id,
         receiptDate: input.orderDate,
@@ -1571,35 +1664,62 @@ export function txExportCompanyBackup(
     }
   }
 
+  const filterByCompany = <T extends { companyId: string }>(arr: T[]) =>
+    arr.filter((r) => r.companyId === companyId);
+
   return JSON.stringify(
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt: nowIso(),
       companyId,
       companyCode: companyMeta.companyCode,
       companyName: companyMeta.companyName,
       sequences: companySequences,
       records: {
-        catalogue: state.catalogue.filter((r) => r.companyId === companyId),
-        contacts: state.contacts.filter((r) => r.companyId === companyId),
-        salesOrders: state.salesOrders.filter((r) => r.companyId === companyId),
-        purchaseOrders: state.purchaseOrders.filter((r) => r.companyId === companyId),
-        stockMovements: state.stockMovements.filter((r) => r.companyId === companyId),
-        inventoryLots: state.inventoryLots.filter((r) => r.companyId === companyId),
-        stockReservations: state.stockReservations.filter((r) => r.companyId === companyId),
-        accounts: state.accounts.filter((r) => r.companyId === companyId),
-        fiscalPeriods: state.fiscalPeriods.filter((r) => r.companyId === companyId),
-        journals: state.journals.filter((r) => r.companyId === companyId),
-        paymentAllocations: state.paymentAllocations.filter((r) => r.companyId === companyId),
-        ledgerEntries: state.ledgerEntries.filter((r) => r.companyId === companyId),
-        employees: state.employees.filter((r) => r.companyId === companyId),
-        payrollRuns: state.payrollRuns.filter((r) => r.companyId === companyId),
-        projectTasks: state.projectTasks.filter((r) => r.companyId === companyId),
-        supportTickets: state.supportTickets.filter((r) => r.companyId === companyId),
-        documents: state.documents.filter((r) => r.companyId === companyId),
-        campaigns: state.campaigns.filter((r) => r.companyId === companyId),
-        industryRecords: state.industryRecords.filter((r) => r.companyId === companyId),
-        auditLogs: state.auditLogs.filter((r) => r.companyId === companyId),
+        catalogue: filterByCompany(state.catalogue),
+        contacts: filterByCompany(state.contacts),
+        salesOrders: filterByCompany(state.salesOrders),
+        creditNotes: filterByCompany(state.creditNotes),
+        posShifts: filterByCompany(state.posShifts),
+        purchaseOrders: filterByCompany(state.purchaseOrders),
+        purchaseRequisitions: filterByCompany(state.purchaseRequisitions),
+        warehouses: filterByCompany(state.warehouses),
+        stockTransfers: filterByCompany(state.stockTransfers),
+        shipments: filterByCompany(state.shipments),
+        stockMovements: filterByCompany(state.stockMovements),
+        inventoryLots: filterByCompany(state.inventoryLots),
+        stockReservations: filterByCompany(state.stockReservations),
+        accounts: filterByCompany(state.accounts),
+        fiscalPeriods: filterByCompany(state.fiscalPeriods),
+        journals: filterByCompany(state.journals),
+        paymentAllocations: filterByCompany(state.paymentAllocations),
+        ledgerEntries: filterByCompany(state.ledgerEntries),
+        fixedAssets: filterByCompany(state.fixedAssets),
+        budgets: filterByCompany(state.budgets),
+        expenseClaims: filterByCompany(state.expenseClaims),
+        bankTransactions: filterByCompany(state.bankTransactions),
+        boms: filterByCompany(state.boms),
+        workOrders: filterByCompany(state.workOrders),
+        qualityInspections: filterByCompany(state.qualityInspections),
+        maintenanceSchedules: filterByCompany(state.maintenanceSchedules),
+        employees: filterByCompany(state.employees),
+        payrollRuns: filterByCompany(state.payrollRuns),
+        leaveRequests: filterByCompany(state.leaveRequests),
+        attendanceLogs: filterByCompany(state.attendanceLogs),
+        jobOpenings: filterByCompany(state.jobOpenings),
+        candidates: filterByCompany(state.candidates),
+        performanceGoals: filterByCompany(state.performanceGoals),
+        projectTasks: filterByCompany(state.projectTasks),
+        timesheets: filterByCompany(state.timesheets),
+        supportTickets: filterByCompany(state.supportTickets),
+        kbArticles: filterByCompany(state.kbArticles),
+        documents: filterByCompany(state.documents),
+        campaigns: filterByCompany(state.campaigns),
+        approvalRules: filterByCompany(state.approvalRules),
+        customFields: filterByCompany(state.customFields),
+        biReports: filterByCompany(state.biReports),
+        industryRecords: filterByCompany(state.industryRecords),
+        auditLogs: filterByCompany(state.auditLogs),
       },
     },
     null,
@@ -1631,73 +1751,83 @@ export function txImportCompanyBackup(
 
     const companyId = scope.companyId;
     const r = parsed.data.records;
-    const stamp = <T extends Record<string, unknown>>(arr: T[]): Array<T & { companyId: string }> =>
-      arr.map((item) => ({ ...item, companyId }));
+    const mergeCollection = <T extends { companyId: string }>(
+      incoming: Record<string, unknown>[],
+      existing: T[],
+    ): T[] => [
+      ...(incoming.map((item) => ({ ...item, companyId })) as unknown as T[]),
+      ...existing.filter((x) => x.companyId !== companyId),
+    ];
 
     const nextSequences = { ...draft.sequences };
     for (const [k, v] of Object.entries(parsed.data.sequences ?? {})) {
       nextSequences[`${companyId}:${k}`] = v;
     }
 
-    const imported = {
-      catalogue: stamp(r.catalogue) as unknown as CatalogueItem[],
-      contacts: stamp(r.contacts) as unknown as CrmContact[],
-      salesOrders: stamp(r.salesOrders) as unknown as SalesOrder[],
-      purchaseOrders: stamp(r.purchaseOrders) as unknown as PurchaseOrder[],
-      stockMovements: stamp(r.stockMovements) as unknown as StockMovement[],
-      inventoryLots: stamp(r.inventoryLots) as unknown as InventoryLot[],
-      stockReservations: stamp(r.stockReservations) as unknown as StockReservation[],
-      accounts: stamp(r.accounts) as unknown as ErpDatabaseState['accounts'],
-      fiscalPeriods: stamp(r.fiscalPeriods) as unknown as ErpDatabaseState['fiscalPeriods'],
-      journals: stamp(r.journals) as unknown as ErpDatabaseState['journals'],
-      paymentAllocations: stamp(r.paymentAllocations) as unknown as PaymentAllocation[],
-      ledgerEntries: stamp(r.ledgerEntries) as unknown as ErpDatabaseState['ledgerEntries'],
-      employees: stamp(r.employees) as unknown as EmployeeRecord[],
-      payrollRuns: stamp(r.payrollRuns) as unknown as PayrollRun[],
-      projectTasks: stamp(r.projectTasks) as unknown as ProjectTask[],
-      supportTickets: stamp(r.supportTickets) as unknown as SupportTicket[],
-      documents: stamp(r.documents) as unknown as DocumentRecord[],
-      campaigns: stamp(r.campaigns) as unknown as MarketingCampaign[],
-      industryRecords: stamp(r.industryRecords) as unknown as IndustryOperationRecord[],
-      auditLogs: stamp(r.auditLogs) as unknown as AuditLogRecord[],
-    };
-
     const importedCount =
-      imported.catalogue.length +
-      imported.contacts.length +
-      imported.salesOrders.length +
-      imported.purchaseOrders.length +
-      imported.journals.length +
-      imported.employees.length +
-      imported.projectTasks.length +
-      imported.supportTickets.length +
-      imported.documents.length +
-      imported.campaigns.length +
-      imported.industryRecords.length;
+      r.catalogue.length +
+      r.contacts.length +
+      r.salesOrders.length +
+      r.creditNotes.length +
+      r.purchaseOrders.length +
+      r.journals.length +
+      r.fixedAssets.length +
+      r.boms.length +
+      r.workOrders.length +
+      r.employees.length +
+      r.projectTasks.length +
+      r.supportTickets.length +
+      r.documents.length +
+      r.campaigns.length +
+      r.industryRecords.length;
 
     let nextState: ErpDatabaseState = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       sequences: nextSequences,
-      catalogue: [...imported.catalogue, ...draft.catalogue.filter((x) => x.companyId !== companyId)],
-      contacts: [...imported.contacts, ...draft.contacts.filter((x) => x.companyId !== companyId)],
-      salesOrders: [...imported.salesOrders, ...draft.salesOrders.filter((x) => x.companyId !== companyId)],
-      purchaseOrders: [...imported.purchaseOrders, ...draft.purchaseOrders.filter((x) => x.companyId !== companyId)],
-      stockMovements: [...imported.stockMovements, ...draft.stockMovements.filter((x) => x.companyId !== companyId)],
-      inventoryLots: [...imported.inventoryLots, ...draft.inventoryLots.filter((x) => x.companyId !== companyId)],
-      stockReservations: [...imported.stockReservations, ...draft.stockReservations.filter((x) => x.companyId !== companyId)],
-      accounts: [...imported.accounts, ...draft.accounts.filter((x) => x.companyId !== companyId)],
-      fiscalPeriods: [...imported.fiscalPeriods, ...draft.fiscalPeriods.filter((x) => x.companyId !== companyId)],
-      journals: [...imported.journals, ...draft.journals.filter((x) => x.companyId !== companyId)],
-      paymentAllocations: [...imported.paymentAllocations, ...draft.paymentAllocations.filter((x) => x.companyId !== companyId)],
-      ledgerEntries: [...imported.ledgerEntries, ...draft.ledgerEntries.filter((x) => x.companyId !== companyId)],
-      employees: [...imported.employees, ...draft.employees.filter((x) => x.companyId !== companyId)],
-      payrollRuns: [...imported.payrollRuns, ...draft.payrollRuns.filter((x) => x.companyId !== companyId)],
-      projectTasks: [...imported.projectTasks, ...draft.projectTasks.filter((x) => x.companyId !== companyId)],
-      supportTickets: [...imported.supportTickets, ...draft.supportTickets.filter((x) => x.companyId !== companyId)],
-      documents: [...imported.documents, ...draft.documents.filter((x) => x.companyId !== companyId)],
-      campaigns: [...imported.campaigns, ...draft.campaigns.filter((x) => x.companyId !== companyId)],
-      industryRecords: [...imported.industryRecords, ...draft.industryRecords.filter((x) => x.companyId !== companyId)],
-      auditLogs: [...imported.auditLogs, ...draft.auditLogs.filter((x) => x.companyId !== companyId)],
+      catalogue: mergeCollection(r.catalogue, draft.catalogue),
+      contacts: mergeCollection(r.contacts, draft.contacts),
+      salesOrders: mergeCollection(r.salesOrders, draft.salesOrders),
+      creditNotes: mergeCollection(r.creditNotes, draft.creditNotes),
+      posShifts: mergeCollection(r.posShifts, draft.posShifts),
+      purchaseOrders: mergeCollection(r.purchaseOrders, draft.purchaseOrders),
+      purchaseRequisitions: mergeCollection(r.purchaseRequisitions, draft.purchaseRequisitions),
+      warehouses: mergeCollection(r.warehouses, draft.warehouses),
+      stockTransfers: mergeCollection(r.stockTransfers, draft.stockTransfers),
+      shipments: mergeCollection(r.shipments, draft.shipments),
+      stockMovements: mergeCollection(r.stockMovements, draft.stockMovements),
+      inventoryLots: mergeCollection(r.inventoryLots, draft.inventoryLots),
+      stockReservations: mergeCollection(r.stockReservations, draft.stockReservations),
+      accounts: mergeCollection(r.accounts, draft.accounts),
+      fiscalPeriods: mergeCollection(r.fiscalPeriods, draft.fiscalPeriods),
+      journals: mergeCollection(r.journals, draft.journals),
+      paymentAllocations: mergeCollection(r.paymentAllocations, draft.paymentAllocations),
+      ledgerEntries: mergeCollection(r.ledgerEntries, draft.ledgerEntries),
+      fixedAssets: mergeCollection(r.fixedAssets, draft.fixedAssets),
+      budgets: mergeCollection(r.budgets, draft.budgets),
+      expenseClaims: mergeCollection(r.expenseClaims, draft.expenseClaims),
+      bankTransactions: mergeCollection(r.bankTransactions, draft.bankTransactions),
+      boms: mergeCollection(r.boms, draft.boms),
+      workOrders: mergeCollection(r.workOrders, draft.workOrders),
+      qualityInspections: mergeCollection(r.qualityInspections, draft.qualityInspections),
+      maintenanceSchedules: mergeCollection(r.maintenanceSchedules, draft.maintenanceSchedules),
+      employees: mergeCollection(r.employees, draft.employees),
+      payrollRuns: mergeCollection(r.payrollRuns, draft.payrollRuns),
+      leaveRequests: mergeCollection(r.leaveRequests, draft.leaveRequests),
+      attendanceLogs: mergeCollection(r.attendanceLogs, draft.attendanceLogs),
+      jobOpenings: mergeCollection(r.jobOpenings, draft.jobOpenings),
+      candidates: mergeCollection(r.candidates, draft.candidates),
+      performanceGoals: mergeCollection(r.performanceGoals, draft.performanceGoals),
+      projectTasks: mergeCollection(r.projectTasks, draft.projectTasks),
+      timesheets: mergeCollection(r.timesheets, draft.timesheets),
+      supportTickets: mergeCollection(r.supportTickets, draft.supportTickets),
+      kbArticles: mergeCollection(r.kbArticles, draft.kbArticles),
+      documents: mergeCollection(r.documents, draft.documents),
+      campaigns: mergeCollection(r.campaigns, draft.campaigns),
+      approvalRules: mergeCollection(r.approvalRules, draft.approvalRules),
+      customFields: mergeCollection(r.customFields, draft.customFields),
+      biReports: mergeCollection(r.biReports, draft.biReports),
+      industryRecords: mergeCollection(r.industryRecords, draft.industryRecords),
+      auditLogs: mergeCollection(r.auditLogs, draft.auditLogs),
     };
 
     nextState = ensureCompanyAccounts(nextState, companyId).nextState;

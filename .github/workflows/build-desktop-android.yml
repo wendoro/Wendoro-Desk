@@ -1,0 +1,74 @@
+name: Build Desktop & Android Releases
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-desktop:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install web dependencies & build dist
+        run: |
+          npm ci
+          npm run build
+      - name: Install desktop dependencies
+        working-directory: electron
+        run: npm install
+      - name: Package Windows Installer (.exe)
+        if: matrix.os == 'windows-latest'
+        working-directory: electron
+        run: npm run dist:win
+      - name: Package macOS Disk Image (.dmg)
+        if: matrix.os == 'macos-latest'
+        working-directory: electron
+        run: npm run dist:mac
+      - name: Package Linux AppImage & Deb
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: electron
+        run: npm run dist:linux
+      - name: Upload Desktop Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wendoro-desktop-${{ runner.os }}
+          path: release/desktop/*
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Build Web Bundle
+        run: |
+          npm ci
+          npm run build
+      - name: Bootstrap & Sync Capacitor Android
+        run: |
+          npm install --no-save @capacitor/core @capacitor/cli @capacitor/android
+          npx cap add android
+          npx cap sync android
+      - name: Compile Android Debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wendoro-android-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk

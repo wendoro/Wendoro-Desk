@@ -7,6 +7,7 @@ import { TenantProvider, useTenant } from '@/src/components/shell/TenantProvider
 import { ThemeProvider } from '@/src/components/shell/ThemeProvider';
 import { WENDORO_MODULES } from '@/src/core/registry/modules';
 import { AccountingView } from '@/src/features/erp/AccountingView';
+import { BiAnalyticsView } from '@/src/features/erp/BiAnalyticsView';
 import { CatalogueView } from '@/src/features/erp/CatalogueView';
 import { CrmView } from '@/src/features/erp/CrmView';
 import { DashboardOverview } from '@/src/features/erp/DashboardOverview';
@@ -15,6 +16,7 @@ import { InventoryView } from '@/src/features/erp/InventoryView';
 import { OperationsModulesView } from '@/src/features/erp/OperationsModulesView';
 import { SalesPurchaseView } from '@/src/features/erp/SalesPurchaseView';
 import { SystemAdminView } from '@/src/features/erp/SystemAdminView';
+import { WorkflowStudioView } from '@/src/features/erp/WorkflowStudioView';
 import { DeploymentGuideView } from '@/src/features/foundation/DeploymentGuideView';
 import { ModuleRoadmapView } from '@/src/features/foundation/ModuleRoadmapView';
 import { SetupWizard } from '@/src/features/setup/SetupWizard';
@@ -62,12 +64,16 @@ function WorkspaceRouter() {
       ];
     }
     switch (activeRoute) {
+      case 'bi_analytics':
+        return ['WENDORO', 'Workspace', 'BI & Analytics'];
+      case 'workflow_studio':
+        return ['WENDORO', 'Workspace', 'Workflow Studio'];
       case 'admin':
         return ['WENDORO', 'Workspace', 'Modules & Settings'];
       case 'setup':
-        return ['WENDORO', 'Workspace', 'Setup Wizard'];
+        return ['WENDORO', 'Software', 'Setup & License'];
       case 'deploy':
-        return ['WENDORO', 'Workspace', 'Deploy & Distribute'];
+        return ['WENDORO', 'Software', 'Desktop & Android'];
       case 'schema':
       case 'identity':
       case 'design':
@@ -127,6 +133,10 @@ function WorkspaceRouter() {
     }
 
     switch (activeRoute) {
+      case 'bi_analytics':
+        return <BiAnalyticsView />;
+      case 'workflow_studio':
+        return <WorkflowStudioView />;
       case 'admin':
         return <SystemAdminView onNavigate={setActiveRoute} />;
       case 'schema':

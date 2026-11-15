@@ -39,6 +39,7 @@ export function SystemAdminView({
     principal,
     activeCompany,
     licenseKey,
+    licenseActivation,
     switchCompany,
     addBranchToActiveCompany,
     toggleCompanyModule,
@@ -133,7 +134,7 @@ export function SystemAdminView({
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#182238] dark:text-slate-100">
+          <h1 className="text-2xl font-bold tracking-tight text-[#1C1917] dark:text-slate-100">
             Modules & Workspace Settings
           </h1>
           <p className="mt-1 text-xs text-[#718096] dark:text-slate-400">
@@ -147,7 +148,7 @@ export function SystemAdminView({
       </div>
 
       {/* Primary Admin Tabs */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 dark:border-[#223257] pb-3">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 dark:border-[#32242A] pb-3">
         {(
           [
             { id: 'modules', label: 'Modules & Licensing', icon: Layers },
@@ -165,8 +166,8 @@ export function SystemAdminView({
               onClick={() => setTab(item.id)}
               className={`inline-flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 active
-                  ? 'bg-[#4169F5] text-white'
-                  : 'text-[#718096] dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#162342]'
+                  ? 'bg-[#DC2626] text-white'
+                  : 'text-[#718096] dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#251B20]'
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -181,27 +182,29 @@ export function SystemAdminView({
         <div className="space-y-6">
           <Surface padding="md" className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
-              <div className="h-9 w-9 rounded-lg bg-[#F6F8FC] dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] flex items-center justify-center shrink-0">
-                <KeyRound className="h-4 w-4 text-[#4169F5]" />
+              <div className="h-9 w-9 rounded-lg bg-[#FAF9F7] dark:bg-[#141013] border border-slate-200 dark:border-[#32242A] flex items-center justify-center shrink-0">
+                <KeyRound className="h-4 w-4 text-[#DC2626]" />
               </div>
               <div>
-                <div className="text-sm font-semibold text-[#182238] dark:text-slate-100 capitalize">
-                  Active Plan: {principal.subscriptionTier} Edition
+                <div className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 capitalize">
+                  Active Plan: {principal.subscriptionTier.replace('_', ' ')} Edition
                 </div>
                 <div className="text-xs text-[#718096] dark:text-slate-400">
-                  {licenseKey
-                    ? `Commercial License Key Active (${licenseKey.slice(0, 8)}...)`
-                    : 'MIT Open Source Core — self-hosted with all standard ERP modules unlocked.'}
+                  {licenseActivation
+                    ? `Verified License Key (${licenseActivation.licenseKey}) · ${licenseActivation.usedDevices}/${licenseActivation.maxDevices} devices`
+                    : licenseKey
+                      ? `License Key Entered (${licenseKey}) · Activate on Setup Wizard to bind device`
+                      : 'No license key activated yet — open Setup & License to register or activate your key.'}
                 </div>
               </div>
             </div>
             <Button variant="outline" size="sm" onClick={() => onNavigate('setup')}>
-              Configure Plan / Company
+              Manage License / Company
             </Button>
           </Surface>
 
           <section className="space-y-3">
-            <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+            <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
               Layer B · Business Applications
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -214,12 +217,12 @@ export function SystemAdminView({
                     onClick={() => toggleCompanyModule(mod.slug)}
                     className={`text-left p-4 rounded-xl border transition-colors cursor-pointer flex items-start justify-between gap-3 ${
                       enabled
-                        ? 'bg-white dark:bg-[#101B35] border-[#4169F5]'
-                        : 'bg-[#F6F8FC]/60 dark:bg-[#0E172E]/70 border-slate-200 dark:border-[#223257] opacity-80 hover:opacity-100'
+                        ? 'bg-white dark:bg-[#1B1417] border-[#DC2626]'
+                        : 'bg-[#FAF9F7]/60 dark:bg-[#141013]/70 border-slate-200 dark:border-[#32242A] opacity-80 hover:opacity-100'
                     }`}
                   >
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+                      <div className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
                         {mod.name}
                       </div>
                       <p className="mt-1 text-xs text-[#718096] dark:text-slate-400 line-clamp-2">
@@ -229,8 +232,8 @@ export function SystemAdminView({
                     <span
                       className={`h-5 w-5 rounded-md border flex items-center justify-center shrink-0 ${
                         enabled
-                          ? 'bg-[#4169F5] border-[#4169F5] text-white'
-                          : 'border-slate-300 dark:border-[#2B3E6B]'
+                          ? 'bg-[#DC2626] border-[#DC2626] text-white'
+                          : 'border-slate-300 dark:border-[#3A2B31]'
                       }`}
                     >
                       {enabled && <Check className="h-3.5 w-3.5" />}
@@ -242,7 +245,7 @@ export function SystemAdminView({
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+            <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
               Layer C · Industry Application Packages
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -255,12 +258,12 @@ export function SystemAdminView({
                     onClick={() => toggleCompanyModule(mod.slug)}
                     className={`text-left p-4 rounded-xl border transition-colors cursor-pointer flex items-start justify-between gap-3 ${
                       enabled
-                        ? 'bg-white dark:bg-[#101B35] border-[#8B5CF6]'
-                        : 'bg-[#F6F8FC]/60 dark:bg-[#0E172E]/70 border-slate-200 dark:border-[#223257] opacity-80 hover:opacity-100'
+                        ? 'bg-white dark:bg-[#1B1417] border-[#F59E0B]'
+                        : 'bg-[#FAF9F7]/60 dark:bg-[#141013]/70 border-slate-200 dark:border-[#32242A] opacity-80 hover:opacity-100'
                     }`}
                   >
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+                      <div className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
                         {mod.name}
                       </div>
                       <p className="mt-1 text-xs text-[#718096] dark:text-slate-400 line-clamp-2">
@@ -270,8 +273,8 @@ export function SystemAdminView({
                     <span
                       className={`h-5 w-5 rounded-md border flex items-center justify-center shrink-0 ${
                         enabled
-                          ? 'bg-[#8B5CF6] border-[#8B5CF6] text-white'
-                          : 'border-slate-300 dark:border-[#2B3E6B]'
+                          ? 'bg-[#F59E0B] border-[#F59E0B] text-white'
+                          : 'border-slate-300 dark:border-[#3A2B31]'
                       }`}
                     >
                       {enabled && <Check className="h-3.5 w-3.5" />}
@@ -289,7 +292,7 @@ export function SystemAdminView({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Surface padding="lg" className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+              <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
                 Registered Companies ({principal.memberships.length})
               </h2>
               <Button variant="outline" size="sm" onClick={() => onNavigate('setup')}>
@@ -305,12 +308,12 @@ export function SystemAdminView({
                     key={m.companyId}
                     className={`p-3 rounded-lg border flex items-center justify-between gap-3 ${
                       isActive
-                        ? 'border-[#4169F5] bg-[#EFF3FA]/60 dark:bg-[#162342]'
-                        : 'border-slate-200 dark:border-[#223257]'
+                        ? 'border-[#DC2626] bg-[#FEF2F2]/70 dark:bg-[#251B20]'
+                        : 'border-slate-200 dark:border-[#32242A]'
                     }`}
                   >
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-[#182238] dark:text-slate-100 truncate">
+                      <div className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 truncate">
                         {m.companyName}
                       </div>
                       <div className="text-xs text-[#718096] dark:text-slate-400">
@@ -319,7 +322,7 @@ export function SystemAdminView({
                       </div>
                     </div>
                     {isActive ? (
-                      <span className="text-xs font-semibold text-[#4169F5] shrink-0">
+                      <span className="text-xs font-semibold text-[#DC2626] shrink-0">
                         Active
                       </span>
                     ) : (
@@ -338,19 +341,19 @@ export function SystemAdminView({
           </Surface>
 
           <Surface padding="lg" className="space-y-4">
-            <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+            <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
               Branches for {activeCompany.companyName}
             </h2>
             <div className="space-y-2">
               {activeCompany.branches.map((b) => (
                 <div
                   key={b.id}
-                  className="p-3 rounded-lg border border-slate-200 dark:border-[#223257] flex items-center justify-between gap-3 text-xs"
+                  className="p-3 rounded-lg border border-slate-200 dark:border-[#32242A] flex items-center justify-between gap-3 text-xs"
                 >
                   <div className="flex items-center gap-2.5">
                     <MapPin className="h-4 w-4 text-[#16B8A6] shrink-0" />
                     <div>
-                      <div className="font-semibold text-[#182238] dark:text-slate-100">
+                      <div className="font-semibold text-[#1C1917] dark:text-slate-100">
                         {b.name}
                       </div>
                       <div className="text-[#718096] dark:text-slate-400 font-mono">
@@ -365,8 +368,8 @@ export function SystemAdminView({
               ))}
             </div>
 
-            <form onSubmit={handleAddBranch} className="pt-3 border-t border-slate-200 dark:border-[#223257] space-y-3">
-              <div className="text-xs font-semibold text-[#182238] dark:text-slate-100">
+            <form onSubmit={handleAddBranch} className="pt-3 border-t border-slate-200 dark:border-[#32242A] space-y-3">
+              <div className="text-xs font-semibold text-[#1C1917] dark:text-slate-100">
                 Add Branch Location
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -376,7 +379,7 @@ export function SystemAdminView({
                   value={branchCode}
                   onChange={(e) => setBranchCode(e.target.value)}
                   placeholder="Code (e.g. BLR-02)"
-                  className="h-9 px-3 rounded-lg text-xs font-mono uppercase bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="h-9 px-3 rounded-lg text-xs font-mono uppercase bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
                 <input
                   type="text"
@@ -384,14 +387,14 @@ export function SystemAdminView({
                   value={branchName}
                   onChange={(e) => setBranchName(e.target.value)}
                   placeholder="Branch Name"
-                  className="h-9 px-3 rounded-lg text-xs bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="h-9 px-3 rounded-lg text-xs bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
                 <input
                   type="text"
                   value={branchCity}
                   onChange={(e) => setBranchCity(e.target.value)}
                   placeholder="City"
-                  className="h-9 px-3 rounded-lg text-xs bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257]"
+                  className="h-9 px-3 rounded-lg text-xs bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A]"
                 />
               </div>
               <Button type="submit" variant="primary" size="sm">
@@ -419,7 +422,7 @@ export function SystemAdminView({
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Surface padding="lg" className="space-y-4">
-              <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+              <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
                 Export & Restore ({activeCompany.companyName})
               </h2>
               <p className="text-xs text-[#718096] dark:text-slate-400">
@@ -449,11 +452,11 @@ export function SystemAdminView({
             </Surface>
 
             <Surface padding="lg" className="space-y-4">
-              <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+              <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
                 Workspace Reset Controls
               </h2>
               <div className="space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg border border-slate-200 dark:border-[#223257]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg border border-slate-200 dark:border-[#32242A]">
                   <div>
                     <div className="text-xs font-semibold">Clear Active Company Records</div>
                     <div className="text-[11px] text-[#718096] dark:text-slate-400">
@@ -493,7 +496,7 @@ export function SystemAdminView({
                   )}
                 </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg border border-slate-200 dark:border-[#223257]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg border border-slate-200 dark:border-[#32242A]">
                   <div>
                     <div className="text-xs font-semibold">Re-run Setup Wizard from Scratch</div>
                     <div className="text-[11px] text-[#718096] dark:text-slate-400">
@@ -555,8 +558,8 @@ export function SystemAdminView({
                 onClick={() => setArchTab(sub.id)}
                 className={`h-8 px-3 rounded-lg text-xs font-medium border cursor-pointer transition-colors ${
                   archTab === sub.id
-                    ? 'bg-[#101B35] text-white border-[#101B35] dark:bg-[#4169F5] dark:border-[#4169F5]'
-                    : 'bg-white dark:bg-[#101B35] border-slate-200 dark:border-[#223257] text-[#182238] dark:text-slate-200'
+                    ? 'bg-[#1B1417] text-white border-[#1B1417] dark:bg-[#DC2626] dark:border-[#DC2626]'
+                    : 'bg-white dark:bg-[#1B1417] border-slate-200 dark:border-[#32242A] text-[#1C1917] dark:text-slate-200'
                 }`}
               >
                 {sub.label}

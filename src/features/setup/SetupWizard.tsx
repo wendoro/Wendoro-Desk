@@ -5,25 +5,32 @@ import {
   Building2,
   Check,
   CheckCircle2,
-  Cloud,
   Copy,
-  Database,
-  Download,
   KeyRound,
-  Layers,
+  Laptop,
+  LogIn,
   Moon,
-  RefreshCw,
-  Server,
   ShieldCheck,
+  Smartphone,
+  Sparkles,
   Sun,
+  Terminal,
+  UserPlus,
 } from 'lucide-react';
 import { Button } from '@/src/components/ui/Button';
 import { Surface } from '@/src/components/ui/Surface';
-import { useFirebase } from '@/src/components/shell/FirebaseProvider';
 import { useTenant } from '@/src/components/shell/TenantProvider';
 import { useTheme } from '@/src/components/shell/ThemeProvider';
 import { WENDORO_LICENSE_PLANS } from '@/src/core/contracts/licensing';
 import { SubscriptionTier } from '@/src/core/contracts/tenancy';
+import {
+  LicenseActivationState,
+  LicensedPlatform,
+  ServerLicenseSummary,
+  activateLicenseKeyWithServer,
+  loginLicenseAccount,
+  registerLicenseWithServer,
+} from '@/src/core/engine/licenseClient';
 import { WENDORO_MODULES } from '@/src/core/registry/modules';
 import { formatNumericCurrency } from '@/src/lib/utils';
 
@@ -33,107 +40,52 @@ interface RegionPreset {
   countryCode: string;
   currency: string;
   timezone: string;
-  taxLabel: string;
-  taxPlaceholder: string;
   defaultCity: string;
-  fiscalHint: string;
 }
 
 const REGION_PRESETS: RegionPreset[] = [
-  {
-    id: 'IN',
-    label: 'India (INR · GST)',
-    countryCode: 'IN',
-    currency: 'INR',
-    timezone: 'Asia/Kolkata',
-    taxLabel: 'GSTIN (Optional)',
-    taxPlaceholder: '29AABCU9603R1ZM',
-    defaultCity: 'Bengaluru',
-    fiscalHint: 'April – March Fiscal Year · CGST/SGST/IGST Ready',
-  },
-  {
-    id: 'US',
-    label: 'United States (USD)',
-    countryCode: 'US',
-    currency: 'USD',
-    timezone: 'America/New_York',
-    taxLabel: 'EIN / Tax ID (Optional)',
-    taxPlaceholder: '12-3456789',
-    defaultCity: 'New York',
-    fiscalHint: 'January – December Fiscal Year',
-  },
-  {
-    id: 'EU',
-    label: 'European Union (EUR)',
-    countryCode: 'DE',
-    currency: 'EUR',
-    timezone: 'Europe/Berlin',
-    taxLabel: 'EU VAT ID (Optional)',
-    taxPlaceholder: 'DE123456789',
-    defaultCity: 'Munich',
-    fiscalHint: 'January – December Fiscal Year · VAT Ready',
-  },
-  {
-    id: 'GB',
-    label: 'United Kingdom (GBP)',
-    countryCode: 'GB',
-    currency: 'GBP',
-    timezone: 'Europe/London',
-    taxLabel: 'UK VAT / CRN (Optional)',
-    taxPlaceholder: 'GB123456789',
-    defaultCity: 'London',
-    fiscalHint: 'April – March Fiscal Year',
-  },
-  {
-    id: 'SG',
-    label: 'Singapore (SGD)',
-    countryCode: 'SG',
-    currency: 'SGD',
-    timezone: 'Asia/Singapore',
-    taxLabel: 'UEN / GST Reg (Optional)',
-    taxPlaceholder: '201912345A',
-    defaultCity: 'Singapore',
-    fiscalHint: 'Multi-Currency ASEAN Hub Ready',
-  },
+  { id: 'IN', label: 'India (INR · GST)', countryCode: 'IN', currency: 'INR', timezone: 'Asia/Kolkata', defaultCity: 'Bengaluru' },
+  { id: 'US', label: 'United States (USD)', countryCode: 'US', currency: 'USD', timezone: 'America/New_York', defaultCity: 'New York' },
+  { id: 'EU', label: 'European Union (EUR)', countryCode: 'DE', currency: 'EUR', timezone: 'Europe/Berlin', defaultCity: 'Munich' },
+  { id: 'GB', label: 'United Kingdom (GBP)', countryCode: 'GB', currency: 'GBP', timezone: 'Europe/London', defaultCity: 'London' },
+  { id: 'SG', label: 'Singapore (SGD)', countryCode: 'SG', currency: 'SGD', timezone: 'Asia/Singapore', defaultCity: 'Singapore' },
 ];
 
 const BUSINESS_PRESETS = [
   {
     id: 'commerce',
-    title: 'Commerce & Distribution',
+    title: 'Retail, POS & Distribution',
     industry: 'Retail & Distribution',
     description: 'Catalogue, CRM, Sales, Purchase, Inventory, Accounting & Retail POS.',
     modules: ['catalogue', 'crm', 'sales', 'purchase', 'inventory', 'accounting', 'industry_retail'],
   },
   {
     id: 'services',
-    title: 'Services & Consulting',
+    title: 'Services & Agency',
     industry: 'Professional Services',
     description: 'CRM, Projects, Accounting, HRMS, Documents & Client Retainers.',
     modules: ['crm', 'projects', 'accounting', 'hrms', 'documents', 'industry_services'],
   },
   {
     id: 'manufacturing',
-    title: 'Manufacturing & Electronics',
+    title: 'Manufacturing & Hardware',
     industry: 'Manufacturing & Hardware',
     description: 'Catalogue, Purchase, Inventory, Accounting, BOM Manufacturing & Electronics RMA.',
     modules: ['catalogue', 'purchase', 'inventory', 'accounting', 'industry_manufacturing', 'industry_electronics'],
   },
   {
-    id: 'minimal',
-    title: 'Minimal Core Only',
-    industry: 'Universal Business',
-    description: 'Start lightweight with Core Identity, RBAC & Accounting, then activate apps later.',
-    modules: ['accounting'],
+    id: 'full',
+    title: 'Full ERP Suite',
+    industry: 'Multi-Operations Enterprise',
+    description: 'All business apps enabled across Finance, Supply Chain, CRM, HRMS & Support.',
+    modules: ['catalogue', 'crm', 'sales', 'purchase', 'inventory', 'accounting', 'hrms', 'projects', 'support', 'documents', 'marketing'],
   },
 ];
 
 const WIZARD_STEPS = [
-  { num: 1, title: 'Organization & Region', icon: Building2 },
-  { num: 2, title: 'Modules & Industry', icon: Layers },
-  { num: 3, title: 'Edition & License', icon: KeyRound },
-  { num: 4, title: 'Cloud & Identity', icon: Cloud },
-  { num: 5, title: 'Review & Launch', icon: ShieldCheck },
+  { num: 1, title: 'Company & Modules', icon: Building2 },
+  { num: 2, title: 'License & Activation', icon: KeyRound },
+  { num: 3, title: 'Desktop & Android Install', icon: Smartphone },
 ] as const;
 
 export interface SetupWizardProps {
@@ -148,70 +100,47 @@ export function SetupWizard({
   onSkip,
 }: SetupWizardProps) {
   const { theme, toggleTheme } = useTheme();
-  const { completeSetupWizard } = useTenant();
-  const {
-    user,
-    connectionState,
-    isConfigured,
-    projectId,
-    firestoreDatabaseId,
-    authError,
-    signInWithGoogle,
-    syncWorkspacePresence,
-  } = useFirebase();
+  const { completeSetupWizard, licenseActivation } = useTenant();
 
   const [step, setStep] = useState<number>(1);
+
+  // Step 1: Company & Modules (simple & fast)
   const [regionId, setRegionId] = useState<string>('IN');
   const [companyName, setCompanyName] = useState<string>('');
-  const [legalName, setLegalName] = useState<string>('');
   const [companyCode, setCompanyCode] = useState<string>('');
-  const [taxNumber, setTaxNumber] = useState<string>('');
-  const [branchCode, setBranchCode] = useState<string>('HQ-01');
-  const [branchName, setBranchName] = useState<string>('Headquarters');
-  const [branchCity, setBranchCity] = useState<string>('');
-
+  const [branchCity, setBranchCity] = useState<string>('Bengaluru');
   const [selectedPreset, setSelectedPreset] = useState<string>('commerce');
-  const [industryClassification, setIndustryClassification] = useState<string>(
-    'Retail & Distribution',
-  );
-  const [enabledModules, setEnabledModules] = useState<string[]>(
-    BUSINESS_PRESETS[0].modules,
-  );
+  const [industryClassification, setIndustryClassification] = useState<string>('Retail & Distribution');
+  const [enabledModules, setEnabledModules] = useState<string[]>(BUSINESS_PRESETS[0].modules);
+  const [showCustomModules, setShowCustomModules] = useState(false);
 
-  const [currencyDisplay, setCurrencyDisplay] = useState<'INR' | 'USD'>('INR');
+  // Step 2: License Server Auth & Activation
+  const [licenseTab, setLicenseTab] = useState<'register' | 'activate' | 'signin'>('register');
+  const [serverUrl, setServerUrl] = useState<string>(
+    typeof window !== 'undefined' && window.location.origin.startsWith('http')
+      ? window.location.origin
+      : 'http://localhost:3000',
+  );
+  const [fullName, setFullName] = useState<string>('');
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
   const [selectedTier, setSelectedTier] = useState<SubscriptionTier>('free');
-  const [licenseKey, setLicenseKey] = useState<string>('');
-  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
+  const [licensedPlatform, setLicensedPlatform] = useState<LicensedPlatform>('both');
+  const [currencyDisplay, setCurrencyDisplay] = useState<'INR' | 'USD'>('INR');
+  const [licenseKeyInput, setLicenseKeyInput] = useState<string>(licenseActivation?.licenseKey ?? '');
+  const [activatedState, setActivatedState] = useState<LicenseActivationState | undefined>(licenseActivation);
+  const [accountLicenses, setAccountLicenses] = useState<ServerLicenseSummary[]>([]);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+
+  // Step 3: Native Install Helpers
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
-  const [infraMode, setInfraMode] = useState<'standalone' | 'cloudflare-neon' | 'docker-postgres'>(
-    'cloudflare-neon',
-  );
-  const [dbProvider, setDbProvider] = useState<'neon' | 'supabase' | 'postgres-self'>('neon');
-  const [serverProbe, setServerProbe] = useState<{
-    checking: boolean;
-    checkedAt: string | null;
-    mode: 'node-express' | 'static-edge' | null;
-    databaseConfigured: boolean;
-    authSecretConfigured: boolean;
-    aiGatewayConfigured: boolean;
-  }>({
-    checking: false,
-    checkedAt: null,
-    mode: null,
-    databaseConfigured: false,
-    authSecretConfigured: false,
-    aiGatewayConfigured: false,
-  });
 
   const region = useMemo(
     () => REGION_PRESETS.find((r) => r.id === regionId) ?? REGION_PRESETS[0],
     [regionId],
-  );
-
-  const selectedPlan = useMemo(
-    () => WENDORO_LICENSE_PLANS.find((p) => p.tier === selectedTier) ?? WENDORO_LICENSE_PLANS[0],
-    [selectedTier],
   );
 
   const selectableModules = useMemo(
@@ -219,13 +148,23 @@ export function SetupWizard({
     [],
   );
 
+  const handleCompanyNameChange = (value: string) => {
+    setCompanyName(value);
+    if (!companyCode || companyCode === suggestCode(companyName)) {
+      setCompanyCode(suggestCode(value));
+    }
+  };
+
+  function suggestCode(name: string): string {
+    const clean = name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
+    return clean ? `${clean}-01` : '';
+  }
+
   const handleRegionSelect = (nextRegionId: string) => {
     const preset = REGION_PRESETS.find((r) => r.id === nextRegionId);
     if (!preset) return;
     setRegionId(nextRegionId);
     setBranchCity(preset.defaultCity);
-    setBranchName(`${preset.defaultCity} Headquarters`);
-    setBranchCode(`${preset.defaultCity.slice(0, 3).toUpperCase()}-HQ`);
     setCurrencyDisplay(preset.currency === 'INR' ? 'INR' : 'USD');
   };
 
@@ -244,187 +183,152 @@ export function SetupWizard({
     );
   };
 
-  const copyCommand = async (id: string, text: string) => {
+  const copyText = async (id: string, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopiedCmd(id);
-      setTimeout(() => setCopiedCmd(null), 1800);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1800);
     } catch {
-      setCopiedCmd(null);
+      setCopiedId(null);
+    }
+  };
+
+  const handleRegisterAndIssueKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setValidationError(null);
+    setAuthNotice(null);
+    setAuthLoading(true);
+    try {
+      const org = companyName.trim() || 'My Organization';
+      const registered = await registerLicenseWithServer({
+        serverUrl,
+        email,
+        password,
+        fullName,
+        organizationName: org,
+        planTier: selectedTier,
+        platform: licensedPlatform,
+      });
+      setLicenseKeyInput(registered.license.licenseKey);
+
+      const activated = await activateLicenseKeyWithServer({
+        serverUrl: registered.serverUrl,
+        licenseKey: registered.license.licenseKey,
+      });
+      setActivatedState(activated);
+      setAuthNotice(
+        `Account registered! License key ${activated.licenseKey} has been issued and activated for this software.`,
+      );
+    } catch (err) {
+      setValidationError(err instanceof Error ? err.message : 'Unable to register license.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleActivateExistingKey = async (e?: React.FormEvent, keyOverride?: string) => {
+    if (e) e.preventDefault();
+    setValidationError(null);
+    setAuthNotice(null);
+    setAuthLoading(true);
+    try {
+      const targetKey = (keyOverride ?? licenseKeyInput).trim().toUpperCase();
+      const activated = await activateLicenseKeyWithServer({
+        serverUrl,
+        licenseKey: targetKey,
+      });
+      setLicenseKeyInput(activated.licenseKey);
+      setSelectedTier(activated.planTier);
+      setActivatedState(activated);
+      setAuthNotice(`License ${activated.licenseKey} verified and activated (${activated.planName}).`);
+    } catch (err) {
+      setValidationError(err instanceof Error ? err.message : 'Unable to activate license key.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSignInRetrieveKeys = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setValidationError(null);
+    setAuthNotice(null);
+    setAuthLoading(true);
+    try {
+      const result = await loginLicenseAccount({ serverUrl, email, password });
+      setAccountLicenses(result.licenses);
+      if (result.licenses.length > 0) {
+        setAuthNotice(`Signed in as ${result.user.email}. Select a license key below to activate this device.`);
+      } else {
+        setAuthNotice(`Signed in as ${result.user.email}, no licenses found yet. Switch to Register to generate one.`);
+      }
+    } catch (err) {
+      setValidationError(err instanceof Error ? err.message : 'Sign-in failed.');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
   const handleNext = () => {
     setValidationError(null);
-    if (step === 1) {
-      if (!companyName.trim() || !companyCode.trim() || !branchName.trim() || !branchCode.trim()) {
-        setValidationError('Company name, company code, branch name, and branch code are required.');
-        return;
-      }
-      if (
-        regionId === 'IN' &&
-        taxNumber.trim().length > 0 &&
-        !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i.test(taxNumber.trim())
-      ) {
-        setValidationError('GSTIN must follow the 15-character Indian GST format (or leave blank for now).');
-        return;
-      }
+    if (step === 1 && !companyName.trim()) {
+      setValidationError('Enter your company or shop name to continue.');
+      return;
     }
-    setStep((s) => Math.min(5, s + 1));
+    setStep((s) => Math.min(3, s + 1));
   };
 
-  const handleLaunch = async () => {
+  const handleLaunch = () => {
     setLaunching(true);
     setValidationError(null);
     try {
-      const slug = companyCode
-        .toLowerCase()
-        .replace(/[^a-z0-9-]+/g, '-')
-        .replace(/(^-|-$)/g, '') || 'wendoro-org';
+      const cleanName = companyName.trim() || 'My Organization';
+      const cleanCode = (companyCode.trim() || suggestCode(cleanName) || 'WND-01').toUpperCase();
+      const slug = cleanCode.toLowerCase().replace(/[^a-z0-9-]+/g, '-') || 'wendoro-org';
 
-      const createdCompany = completeSetupWizard({
-        tenantName: companyName.trim(),
+      completeSetupWizard({
+        tenantName: cleanName,
         tenantSlug: slug,
-        companyName: companyName.trim(),
-        legalName: legalName.trim() || companyName.trim(),
-        companyCode: companyCode.trim(),
+        companyName: cleanName,
+        legalName: cleanName,
+        companyCode: cleanCode,
         industryClassification,
         countryCode: region.countryCode,
         baseCurrency: region.currency,
         timezone: region.timezone,
-        taxRegistrationNumber: taxNumber.trim() || undefined,
-        branchCode: branchCode.trim(),
-        branchName: branchName.trim(),
-        branchCity: branchCity.trim(),
+        branchCode: 'HQ-01',
+        branchName: `${branchCity.trim() || region.defaultCity} Headquarters`,
+        branchCity: branchCity.trim() || region.defaultCity,
         enabledModules,
-        subscriptionTier: selectedTier,
-        licenseKey: licenseKey.trim() || undefined,
+        subscriptionTier: activatedState?.planTier ?? selectedTier,
+        licenseKey: activatedState?.licenseKey ?? (licenseKeyInput.trim() || undefined),
+        licenseActivation: activatedState,
       });
-
-      if (user && user.emailVerified) {
-        await syncWorkspacePresence({
-          companyId: createdCompany.companyId,
-          companyName: createdCompany.companyName,
-          activeRoute: 'overview',
-        });
-      }
 
       onComplete();
     } catch (err) {
-      setValidationError(err instanceof Error ? err.message : 'Unable to finalize setup.');
+      setValidationError(err instanceof Error ? err.message : 'Unable to launch workspace.');
     } finally {
       setLaunching(false);
     }
   };
-
-  const checkServerStatus = async () => {
-    setServerProbe((prev) => ({ ...prev, checking: true }));
-    try {
-      const res = await fetch('/api/setup/status', { cache: 'no-store' });
-      const contentType = res.headers.get('content-type') ?? '';
-      if (res.ok && contentType.includes('application/json')) {
-        const data = (await res.json()) as {
-          databaseConfigured?: boolean;
-          authSecretConfigured?: boolean;
-          aiGatewayConfigured?: boolean;
-        };
-        setServerProbe({
-          checking: false,
-          checkedAt: new Date().toLocaleTimeString(),
-          mode: 'node-express',
-          databaseConfigured: Boolean(data.databaseConfigured),
-          authSecretConfigured: Boolean(data.authSecretConfigured),
-          aiGatewayConfigured: Boolean(data.aiGatewayConfigured),
-        });
-      } else {
-        setServerProbe({
-          checking: false,
-          checkedAt: new Date().toLocaleTimeString(),
-          mode: 'static-edge',
-          databaseConfigured: false,
-          authSecretConfigured: false,
-          aiGatewayConfigured: false,
-        });
-      }
-    } catch {
-      setServerProbe({
-        checking: false,
-        checkedAt: new Date().toLocaleTimeString(),
-        mode: 'static-edge',
-        databaseConfigured: false,
-        authSecretConfigured: false,
-        aiGatewayConfigured: false,
-      });
-    }
-  };
-
-  const downloadTemplateFile = (filename: string, content: string, mimeType: string) => {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const safeDbSlug =
-    companyCode
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/(^_|_$)/g, '') || 'wendoro';
-
-  const envTemplateContent = `# WENDORO ERP Environment Configuration (${companyName})
-# Replace placeholder values with your own credentials before starting.
-DATABASE_URL="postgresql://wendoro:<YOUR_PASSWORD>@${
-    dbProvider === 'neon'
-      ? 'ep-your-endpoint.neon.tech'
-      : dbProvider === 'supabase'
-        ? 'db.your-project.supabase.co'
-        : 'localhost'
-  }:5432/${safeDbSlug}?sslmode=require"
-BETTER_AUTH_SECRET="<RUN_OPENSSL_RAND_HEX_32>"
-GEMINI_API_KEY="<OPTIONAL_GEMINI_API_KEY>"
-APP_URL="https://erp.example.com"
-`;
-
-  const firebaseTemplateContent = JSON.stringify(
-    {
-      projectId: 'YOUR_FIREBASE_PROJECT_ID',
-      appId: 'YOUR_FIREBASE_WEB_APP_ID',
-      apiKey: 'YOUR_FIREBASE_WEB_API_KEY',
-      authDomain: 'YOUR_FIREBASE_PROJECT_ID.firebaseapp.com',
-      firestoreDatabaseId: '(default)',
-      storageBucket: 'YOUR_FIREBASE_PROJECT_ID.firebasestorage.app',
-      messagingSenderId: 'YOUR_FIREBASE_SENDER_ID',
-    },
-    null,
-    2,
-  );
-
-  const migrationCommand = 'psql "$DATABASE_URL" -f src/db/migrations/0000_core_foundation_rls.sql';
-  const cloudflareSecretsCommand =
-    'npx wrangler secret put DATABASE_URL && npx wrangler secret put BETTER_AUTH_SECRET && npx wrangler secret put GEMINI_API_KEY';
-  const dockerCommand = 'cp .env.example .env && docker compose up -d --build';
 
   return (
     <div
       className={
         isModalOrEmbedded
           ? 'space-y-6'
-          : 'min-h-screen bg-[#F6F8FC] dark:bg-[#0B1224] text-[#182238] dark:text-slate-100 flex flex-col'
+          : 'min-h-screen bg-[#FAF9F7] dark:bg-[#141013] text-[#1C1917] dark:text-stone-100 flex flex-col'
       }
     >
       {!isModalOrEmbedded && (
-        <header className="h-14 shrink-0 bg-white dark:bg-[#101B35] border-b border-slate-200 dark:border-[#223257] px-4 lg:px-8 flex items-center justify-between gap-4">
+        <header className="h-14 shrink-0 bg-white dark:bg-[#1B1417] border-b border-stone-200 dark:border-[#32242A] px-4 lg:px-8 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="h-7 w-7 rounded-lg bg-[#4169F5] flex items-center justify-center font-display font-bold text-sm text-white">
+            <div className="h-7 w-7 rounded-lg bg-[#DC2626] flex items-center justify-center font-display font-bold text-sm text-white relative">
               W
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#FACC15]" />
             </div>
             <span className="font-display text-base font-bold tracking-tight whitespace-nowrap">
-              WENDORO Setup
+              WENDORO Installer
             </span>
           </div>
 
@@ -433,16 +337,16 @@ APP_URL="https://erp.example.com"
               type="button"
               onClick={toggleTheme}
               aria-label="Toggle theme"
-              className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#223257] bg-white dark:bg-[#0E172E] cursor-pointer"
+              className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-stone-200 dark:border-[#32242A] bg-white dark:bg-[#141013] cursor-pointer"
             >
               {theme === 'dark' ? (
-                <Sun className="h-4 w-4 text-amber-400" />
+                <Sun className="h-4 w-4 text-[#FACC15]" />
               ) : (
-                <Moon className="h-4 w-4" />
+                <Moon className="h-4 w-4 text-[#1C1917]" />
               )}
             </button>
             <Button variant="ghost" size="sm" onClick={onSkip}>
-              Skip Setup
+              Open Demo Workspace
             </Button>
           </div>
         </header>
@@ -452,33 +356,31 @@ APP_URL="https://erp.example.com"
         className={
           isModalOrEmbedded
             ? 'space-y-6'
-            : 'flex-1 w-full max-w-5xl mx-auto px-4 py-8 lg:px-8 space-y-6'
+            : 'flex-1 w-full max-w-4xl mx-auto px-4 py-8 lg:px-8 space-y-6'
         }
       >
-        {/* Intro + Stepper */}
+        {/* Header + 3-Step Simple Stepper */}
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
             <div>
-              <p className="text-xs font-medium text-[#4169F5] mb-1">
-                BakeWeb · Wendoro-Desk Post-Deploy Onboarding
+              <p className="text-xs font-semibold text-[#DC2626] dark:text-[#FACC15] mb-1">
+                WENDORO Desktop & Android Setup · 3 Quick Steps
               </p>
-              <h1 className="text-2xl font-bold tracking-tight text-[#182238] dark:text-slate-100">
-                Initialize Your WENDORO Workspace
+              <h1 className="text-2xl font-bold tracking-tight text-[#1C1917] dark:text-stone-100">
+                Simple Software Setup & License Activation
               </h1>
-              <p className="mt-1 text-sm text-[#718096] dark:text-slate-400">
-                Configure your organization, India GST or global currency defaults, active
-                modules, licensing edition, and cloud readiness in 5 steps.
+              <p className="mt-1 text-sm text-[#57534E] dark:text-stone-400">
+                No cloud hosting required. Set up your company, register for your license key, and install on Desktop or Android.
               </p>
             </div>
             {isModalOrEmbedded && (
               <Button variant="outline" size="sm" onClick={onSkip}>
-                Cancel Wizard
+                Close Wizard
               </Button>
             )}
           </div>
 
-          {/* 5-Step Progress Bar */}
-          <nav aria-label="Setup Steps" className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <nav aria-label="Setup Steps" className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {WIZARD_STEPS.map((s) => {
               const Icon = s.icon;
               const isCurrent = step === s.num;
@@ -488,30 +390,30 @@ APP_URL="https://erp.example.com"
                   key={s.num}
                   type="button"
                   onClick={() => {
-                    if (s.num <= step) setStep(s.num);
+                    if (s.num <= step || (s.num === 2 && companyName.trim())) setStep(s.num);
                   }}
-                  className={`flex items-center gap-2 p-2.5 rounded-lg border text-left transition-colors cursor-pointer ${
+                  className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
                     isCurrent
-                      ? 'bg-white dark:bg-[#101B35] border-[#4169F5] text-[#182238] dark:text-slate-100'
+                      ? 'bg-white dark:bg-[#1B1417] border-[#DC2626] ring-1 ring-[#DC2626]/30 text-[#1C1917] dark:text-stone-100'
                       : isDone
-                        ? 'bg-white/70 dark:bg-[#101B35]/70 border-slate-200 dark:border-[#223257] text-[#16B8A6]'
-                        : 'bg-slate-100/70 dark:bg-[#0E172E] border-slate-200/70 dark:border-[#223257] text-[#718096] dark:text-slate-400'
+                        ? 'bg-white/80 dark:bg-[#1B1417]/70 border-amber-300 dark:border-[#FACC15]/40 text-[#B45309] dark:text-[#FACC15]'
+                        : 'bg-stone-100/80 dark:bg-[#161114] border-stone-200 dark:border-[#32242A] text-[#57534E] dark:text-stone-400'
                   }`}
                 >
                   <span
-                    className={`h-6 w-6 rounded-md text-xs font-mono font-semibold flex items-center justify-center shrink-0 ${
+                    className={`h-7 w-7 rounded-lg text-xs font-mono font-bold flex items-center justify-center shrink-0 ${
                       isCurrent
-                        ? 'bg-[#4169F5] text-white'
+                        ? 'bg-[#DC2626] text-white'
                         : isDone
-                          ? 'bg-[#16B8A6]/15 text-[#16B8A6]'
-                          : 'bg-slate-200 dark:bg-[#162342]'
+                          ? 'bg-[#FACC15] text-[#1C1917]'
+                          : 'bg-stone-200 dark:bg-[#2A1E22]'
                     }`}
                   >
-                    {isDone ? <Check className="h-3.5 w-3.5" /> : s.num}
+                    {isDone ? <Check className="h-4 w-4" /> : s.num}
                   </span>
                   <div className="min-w-0">
-                    <div className="text-xs font-medium truncate flex items-center gap-1">
-                      <Icon className="h-3 w-3 shrink-0 hidden xl:inline" />
+                    <div className="text-xs font-semibold truncate flex items-center gap-1.5">
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
                       <span className="truncate">{s.title}</span>
                     </div>
                   </div>
@@ -524,22 +426,28 @@ APP_URL="https://erp.example.com"
         {validationError && (
           <div
             role="alert"
-            className="p-3.5 rounded-xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30 text-xs font-medium text-red-700 dark:text-red-300"
+            className="p-3.5 rounded-xl border border-red-300 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 text-xs font-medium text-red-700 dark:text-red-300"
           >
             {validationError}
           </div>
         )}
 
-        {/* Step 1: Organization & Region */}
+        {authNotice && (
+          <div className="p-3.5 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-950/30 text-xs font-medium text-[#92400E] dark:text-[#FDE047] flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-[#DC2626] dark:text-[#FACC15]" />
+            <span>{authNotice}</span>
+          </div>
+        )}
+
+        {/* STEP 1: COMPANY & MODULES */}
         {step === 1 && (
           <Surface padding="lg" className="space-y-6">
             <div>
-              <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
-                01. Country Preset & Legal Entity
+              <h2 className="text-base font-semibold text-[#1C1917] dark:text-stone-100">
+                1. Business Profile & Active Apps
               </h2>
-              <p className="text-xs text-[#718096] dark:text-slate-400 mt-0.5">
-                Pick a regional compliance preset. India presets configure INR, Asia/Kolkata,
-                and April–March GST fiscal calendars automatically.
+              <p className="text-xs text-[#57534E] dark:text-stone-400 mt-0.5">
+                Pick your region, enter your business name, and choose a ready-to-use module bundle.
               </p>
             </div>
 
@@ -551,8 +459,8 @@ APP_URL="https://erp.example.com"
                   onClick={() => handleRegionSelect(preset.id)}
                   className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
                     regionId === preset.id
-                      ? 'bg-[#4169F5] text-white border-[#4169F5]'
-                      : 'bg-[#F6F8FC] dark:bg-[#0E172E] border-slate-200 dark:border-[#223257] text-[#182238] dark:text-slate-200 hover:border-[#4169F5]'
+                      ? 'bg-[#DC2626] text-white border-[#DC2626]'
+                      : 'bg-[#FAF9F7] dark:bg-[#141013] border-stone-200 dark:border-[#32242A] text-[#1C1917] dark:text-stone-200 hover:border-[#DC2626]'
                   }`}
                 >
                   {preset.label}
@@ -560,591 +468,522 @@ APP_URL="https://erp.example.com"
               ))}
             </div>
 
-            <div className="text-xs text-[#16B8A6] font-medium">
-              Active Compliance Profile: {region.fiscalHint}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-[#182238] dark:text-slate-200 mb-1.5">
-                  Company Display Name
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-[#1C1917] dark:text-stone-200 mb-1.5">
+                  Company / Business Name
                 </label>
                 <input
                   type="text"
                   value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="e.g. Acme Retail Pvt Ltd"
-                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
+                  onChange={(e) => handleCompanyNameChange(e.target.value)}
+                  placeholder="e.g. Apex Retail Pvt Ltd"
+                  className="w-full h-10 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#182238] dark:text-slate-200 mb-1.5">
-                  Company Code
-                </label>
-                <input
-                  type="text"
-                  value={companyCode}
-                  onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. ACME-IN"
-                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#182238] dark:text-slate-200 mb-1.5">
-                  Registered Legal Name
-                </label>
-                <input
-                  type="text"
-                  value={legalName}
-                  onChange={(e) => setLegalName(e.target.value)}
-                  placeholder="e.g. Acme Retail Private Limited"
-                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#182238] dark:text-slate-200 mb-1.5">
-                  {region.taxLabel}
-                </label>
-                <input
-                  type="text"
-                  value={taxNumber}
-                  onChange={(e) => setTaxNumber(e.target.value.toUpperCase())}
-                  placeholder={region.taxPlaceholder}
-                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
-                />
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-slate-200 dark:border-[#223257] grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-[#182238] dark:text-slate-200 mb-1.5">
-                  HQ Branch Name
-                </label>
-                <input
-                  type="text"
-                  value={branchName}
-                  onChange={(e) => setBranchName(e.target.value)}
-                  placeholder="e.g. Main Headquarters"
-                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[#182238] dark:text-slate-200 mb-1.5">
-                  Branch Code
-                </label>
-                <input
-                  type="text"
-                  value={branchCode}
-                  onChange={(e) => setBranchCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. HQ-01"
-                  className="w-full h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[#182238] dark:text-slate-200 mb-1.5">
-                  City
+                <label className="block text-xs font-medium text-[#1C1917] dark:text-stone-200 mb-1.5">
+                  City / HQ Branch
                 </label>
                 <input
                   type="text"
                   value={branchCity}
                   onChange={(e) => setBranchCity(e.target.value)}
-                  placeholder={`e.g. ${region.defaultCity}`}
-                  className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
+                  placeholder={region.defaultCity}
+                  className="w-full h-10 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
                 />
               </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-[#1C1917] dark:text-stone-200">
+                  Choose Industry Preset ({enabledModules.length} apps selected)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomModules((v) => !v)}
+                  className="text-xs font-medium text-[#DC2626] dark:text-[#FACC15] hover:underline cursor-pointer"
+                >
+                  {showCustomModules ? 'Hide individual apps' : 'Customize individual apps'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {BUSINESS_PRESETS.map((preset) => {
+                  const active = selectedPreset === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handlePresetSelect(preset.id)}
+                      className={`p-3.5 rounded-xl border text-left transition-colors cursor-pointer ${
+                        active
+                          ? 'border-[#DC2626] bg-[#DC2626]/5 dark:bg-[#DC2626]/15 ring-1 ring-[#DC2626]/30'
+                          : 'border-stone-200 dark:border-[#32242A] bg-[#FAF9F7]/70 dark:bg-[#141013] hover:border-[#DC2626]/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-[#1C1917] dark:text-stone-100">
+                          {preset.title}
+                        </span>
+                        {active && <CheckCircle2 className="h-4 w-4 text-[#DC2626] dark:text-[#FACC15] shrink-0" />}
+                      </div>
+                      <p className="mt-1 text-[11px] text-[#57534E] dark:text-stone-400 leading-relaxed">
+                        {preset.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {showCustomModules && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2">
+                  {selectableModules.map((mod) => {
+                    const checked = enabledModules.includes(mod.slug);
+                    return (
+                      <button
+                        key={mod.slug}
+                        type="button"
+                        onClick={() => toggleModule(mod.slug)}
+                        className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-left text-xs transition-colors cursor-pointer ${
+                          checked
+                            ? 'border-[#F59E0B] bg-amber-50 dark:bg-amber-950/30 text-[#1C1917] dark:text-stone-100'
+                            : 'border-stone-200 dark:border-[#32242A] bg-white dark:bg-[#141013] text-[#57534E] dark:text-stone-400'
+                        }`}
+                      >
+                        <span className="truncate font-medium">{mod.name}</span>
+                        <span
+                          className={`h-4 w-4 rounded flex items-center justify-center shrink-0 ${
+                            checked ? 'bg-[#DC2626] text-white' : 'border border-stone-300 dark:border-[#32242A]'
+                          }`}
+                        >
+                          {checked && <Check className="h-3 w-3" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </Surface>
         )}
 
-        {/* Step 2: Modules & Industry */}
+        {/* STEP 2: REGISTER & ACTIVATE LICENSE */}
         {step === 2 && (
           <Surface padding="lg" className="space-y-6">
-            <div>
-              <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
-                02. Operational Profile & Module Activation
-              </h2>
-              <p className="text-xs text-[#718096] dark:text-slate-400 mt-0.5">
-                Start with a recommended template or activate individual Layer B & Layer C modules.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {BUSINESS_PRESETS.map((preset) => {
-                const active = selectedPreset === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => handlePresetSelect(preset.id)}
-                    className={`p-3.5 rounded-xl border text-left transition-colors cursor-pointer ${
-                      active
-                        ? 'border-[#4169F5] bg-[#4169F5]/5 dark:bg-[#4169F5]/10'
-                        : 'border-slate-200 dark:border-[#223257] bg-[#F6F8FC]/60 dark:bg-[#0E172E] hover:border-[#4169F5]/60'
-                    }`}
-                  >
-                    <div className="text-xs font-semibold text-[#182238] dark:text-slate-100">
-                      {preset.title}
-                    </div>
-                    <p className="mt-1 text-[11px] text-[#718096] dark:text-slate-400 leading-relaxed">
-                      {preset.description}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-[#718096] dark:text-slate-400">
-                Active Modules ({enabledModules.length} selected + Core Identity & RBAC)
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-[#1C1917] dark:text-stone-100">
+                  2. License Server Registration & Activation
+                </h2>
+                <p className="text-xs text-[#57534E] dark:text-stone-400 mt-0.5">
+                  Register an account to receive your WENDORO License Key, or activate an existing key for this Desktop/Android device.
+                </p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                {selectableModules.map((mod) => {
-                  const checked = enabledModules.includes(mod.slug);
+
+              <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-stone-100 dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] self-start">
+                {(
+                  [
+                    { id: 'register', label: 'Register & Get Key', icon: UserPlus },
+                    { id: 'activate', label: 'Activate Key', icon: KeyRound },
+                    { id: 'signin', label: 'My Keys', icon: LogIn },
+                  ] as const
+                ).map((item) => {
+                  const Icon = item.icon;
+                  const active = licenseTab === item.id;
                   return (
                     <button
-                      key={mod.slug}
+                      key={item.id}
                       type="button"
-                      onClick={() => toggleModule(mod.slug)}
-                      aria-pressed={checked}
-                      className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border text-left text-xs transition-colors cursor-pointer ${
-                        checked
-                          ? 'border-[#16B8A6] bg-[#16B8A6]/10 text-[#182238] dark:text-slate-100'
-                          : 'border-slate-200 dark:border-[#223257] bg-white dark:bg-[#0E172E] text-[#718096] dark:text-slate-400'
+                      onClick={() => setLicenseTab(item.id)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                        active
+                          ? 'bg-[#DC2626] text-white'
+                          : 'text-[#57534E] dark:text-stone-300 hover:text-[#1C1917] dark:hover:text-white'
                       }`}
                     >
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{mod.name}</div>
-                        <div className="text-[11px] opacity-80">
-                          {mod.layer === 'industry' ? 'Industry Package' : 'Business App'}
-                        </div>
-                      </div>
-                      <span
-                        className={`h-4 w-4 rounded flex items-center justify-center shrink-0 ${
-                          checked
-                            ? 'bg-[#16B8A6] text-white'
-                            : 'border border-slate-300 dark:border-[#223257]'
-                        }`}
-                      >
-                        {checked && <Check className="h-3 w-3" />}
-                      </span>
+                      <Icon className="h-3.5 w-3.5" />
+                      {item.label}
                     </button>
                   );
                 })}
               </div>
             </div>
-          </Surface>
-        )}
 
-        {/* Step 3: Edition & License */}
-        {step === 3 && (
-          <Surface padding="lg" className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
-                  03. Open-Source Edition or Commercial License
-                </h2>
-                <p className="text-xs text-[#718096] dark:text-slate-400 mt-0.5">
-                  Run free under Apache-2.0 Open Source or activate a commercial BakeWeb tier.
-                </p>
-              </div>
-
-              <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-200/70 dark:bg-[#162342] self-start">
-                {(['INR', 'USD'] as const).map((cur) => (
+            {/* Active License Banner */}
+            {activatedState && (
+              <div className="p-4 rounded-xl border border-[#F59E0B]/60 bg-gradient-to-r from-[#DC2626]/8 via-amber-50 to-[#FACC15]/15 dark:from-[#DC2626]/20 dark:via-[#1B1417] dark:to-[#FACC15]/10 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-[#DC2626] dark:text-[#FACC15]" />
+                    <span className="text-xs font-bold text-[#1C1917] dark:text-stone-100">
+                      Software Activated · {activatedState.planName}
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-mono text-[#B45309] dark:text-[#FACC15] tabular-nums">
+                    {activatedState.usedDevices} / {activatedState.maxDevices} devices active
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-white/90 dark:bg-[#141013] border border-stone-200 dark:border-[#32242A]">
+                  <code className="font-mono text-sm font-bold tracking-wider text-[#DC2626] dark:text-[#FACC15]">
+                    {activatedState.licenseKey}
+                  </code>
                   <button
-                    key={cur}
                     type="button"
-                    onClick={() => setCurrencyDisplay(cur)}
-                    className={`px-3 py-1 text-xs font-medium rounded-md cursor-pointer ${
-                      currencyDisplay === cur
-                        ? 'bg-white dark:bg-[#101B35] text-[#182238] dark:text-slate-100 shadow-xs'
-                        : 'text-[#718096] dark:text-slate-400'
-                    }`}
+                    onClick={() => void copyText('active-key', activatedState.licenseKey)}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-[#1C1917] dark:text-stone-200 hover:text-[#DC2626] cursor-pointer"
                   >
-                    {cur}
+                    {copiedId === 'active-key' ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-600" /> Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" /> Copy Key
+                      </>
+                    )}
                   </button>
-                ))}
+                </div>
+                <div className="text-[11px] text-[#57534E] dark:text-stone-400">
+                  Registered to <strong>{activatedState.email}</strong> · Organization:{' '}
+                  <strong>{activatedState.organizationName}</strong>
+                </div>
               </div>
+            )}
+
+            {/* License Server URL Input */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-[#FAF9F7] dark:bg-[#141013] border border-stone-200 dark:border-[#32242A]">
+              <label className="text-xs font-medium text-[#57534E] dark:text-stone-400 shrink-0">
+                License Auth Server URL:
+              </label>
+              <input
+                type="url"
+                value={serverUrl}
+                onChange={(e) => setServerUrl(e.target.value)}
+                placeholder="https://license.yourcompany.com"
+                className="flex-1 h-8 px-2.5 rounded-md text-xs font-mono bg-white dark:bg-[#1B1417] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+              />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {WENDORO_LICENSE_PLANS.map((plan) => {
-                const active = selectedTier === plan.tier;
-                const price =
-                  currencyDisplay === 'INR'
-                    ? formatNumericCurrency(plan.monthlyPriceInr, 'INR', 0)
-                    : formatNumericCurrency(plan.monthlyPriceUsd, 'USD', 0);
+            {licenseTab === 'register' && (
+              <form onSubmit={handleRegisterAndIssueKey} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="Aarav Sharma"
+                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Work Email</label>
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="owner@company.com"
+                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Account Password</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Min 6 characters"
+                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                    />
+                  </div>
+                </div>
 
-                return (
-                  <button
-                    key={plan.tier}
-                    type="button"
-                    onClick={() => setSelectedTier(plan.tier)}
-                    className={`p-4 rounded-xl border text-left transition-colors cursor-pointer flex flex-col justify-between gap-3 ${
-                      active
-                        ? 'border-[#4169F5] ring-1 ring-[#4169F5] bg-[#4169F5]/5 dark:bg-[#4169F5]/10'
-                        : 'border-slate-200 dark:border-[#223257] bg-white dark:bg-[#0E172E] hover:border-[#4169F5]/60'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-[#182238] dark:text-slate-100">
-                          {plan.name}
-                        </span>
-                        <span className="font-mono text-xs font-semibold text-[#4169F5] tabular-nums">
-                          {price}/mo
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-[#718096] dark:text-slate-400 mt-0.5">
-                        {plan.targetSegment} · Up to {plan.maxUsers} users · {plan.maxCompanies}{' '}
-                        {plan.maxCompanies === 1 ? 'company' : 'companies'}
-                      </div>
-                      <ul className="mt-2.5 space-y-1 text-[11px] text-[#182238] dark:text-slate-300">
-                        {plan.highlights.map((h) => (
-                          <li key={h}>· {h}</li>
-                        ))}
-                      </ul>
+                {/* Tier Selection */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold">Select License Edition</span>
+                    <div className="inline-flex items-center gap-1 p-0.5 rounded-md bg-stone-100 dark:bg-[#141013]">
+                      {(['INR', 'USD'] as const).map((cur) => (
+                        <button
+                          key={cur}
+                          type="button"
+                          onClick={() => setCurrencyDisplay(cur)}
+                          className={`px-2 py-0.5 text-[11px] font-medium rounded cursor-pointer ${
+                            currencyDisplay === cur
+                              ? 'bg-white dark:bg-[#1B1417] text-[#1C1917] dark:text-white shadow-xs'
+                              : 'text-[#57534E] dark:text-stone-400'
+                          }`}
+                        >
+                          {cur}
+                        </button>
+                      ))}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {WENDORO_LICENSE_PLANS.filter((p) =>
+                      ['free', 'starter', 'business', 'professional', 'enterprise', 'self_hosted'].includes(p.tier),
+                    ).map((plan) => {
+                      const active = selectedTier === plan.tier;
+                      const price =
+                        currencyDisplay === 'INR'
+                          ? formatNumericCurrency(plan.monthlyPriceInr, 'INR', 0)
+                          : formatNumericCurrency(plan.monthlyPriceUsd, 'USD', 0);
+                      return (
+                        <button
+                          key={plan.tier}
+                          type="button"
+                          onClick={() => setSelectedTier(plan.tier)}
+                          className={`p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+                            active
+                              ? 'border-[#DC2626] ring-1 ring-[#DC2626] bg-[#DC2626]/5 dark:bg-[#DC2626]/15'
+                              : 'border-stone-200 dark:border-[#32242A] bg-white dark:bg-[#141013]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs font-bold">{plan.name}</span>
+                            <span className="font-mono text-xs font-semibold text-[#DC2626] dark:text-[#FACC15] tabular-nums">
+                              {plan.tier === 'free' ? 'Free' : `${price}/mo`}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[#57534E] dark:text-stone-400 mt-0.5">
+                            {plan.maxUsers} users · {plan.maxCompanies} {plan.maxCompanies === 1 ? 'company' : 'companies'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-            {selectedTier !== 'free' && (
-              <div className="pt-3 border-t border-slate-200 dark:border-[#223257]">
-                <label className="block text-xs font-medium text-[#182238] dark:text-slate-200 mb-1.5">
-                  BakeWeb Commercial License Key (Optional for 14-Day Evaluation)
-                </label>
-                <input
-                  type="text"
-                  value={licenseKey}
-                  onChange={(e) => setLicenseKey(e.target.value.toUpperCase())}
-                  placeholder={`WDR-${selectedTier.toUpperCase()}-XXXX-XXXX`}
-                  className="w-full max-w-md h-9 px-3 rounded-lg text-sm font-mono bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
-                />
+                {/* Target Native Software */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-[#57534E] dark:text-stone-400">
+                      Issue Key For:
+                    </span>
+                    {(
+                      [
+                        { id: 'both', label: 'Desktop + Android' },
+                        { id: 'desktop', label: 'Desktop Only' },
+                        { id: 'android', label: 'Android Only' },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setLicensedPlatform(opt.id)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium border cursor-pointer ${
+                          licensedPlatform === opt.id
+                            ? 'bg-[#FACC15] text-[#1C1917] border-[#EAB308] font-semibold'
+                            : 'border-stone-200 dark:border-[#32242A] text-[#57534E] dark:text-stone-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <Button type="submit" variant="primary" size="md" disabled={authLoading}>
+                    <Sparkles className="h-4 w-4" />
+                    {authLoading ? 'Generating License Key...' : 'Register & Generate License Key'}
+                  </Button>
+                </div>
+              </form>
+            )}
+
+            {licenseTab === 'activate' && (
+              <form onSubmit={(e) => void handleActivateExistingKey(e)} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium mb-1.5">
+                    Enter WENDORO License Key
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={licenseKeyInput}
+                      onChange={(e) => setLicenseKeyInput(e.target.value.toUpperCase())}
+                      placeholder="WND-COMM-XXXXXXXX-XXXXXXXX"
+                      className="flex-1 h-10 px-3 rounded-lg text-sm font-mono tracking-wider bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                    />
+                    <Button type="submit" variant="primary" size="md" disabled={authLoading}>
+                      <KeyRound className="h-4 w-4" />
+                      {authLoading ? 'Verifying...' : 'Verify & Activate'}
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-[#57534E] dark:text-stone-400">
+                  Your Desktop or Android client authenticates this key against the license server and binds this device seat securely.
+                </p>
+              </form>
+            )}
+
+            {licenseTab === 'signin' && (
+              <div className="space-y-4">
+                <form onSubmit={handleSignInRetrieveKeys} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Registered Email</label>
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="owner@company.com"
+                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Password</label>
+                    <input
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full h-9 px-3 rounded-lg text-sm bg-white dark:bg-[#141013] border border-stone-200 dark:border-[#32242A] focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
+                    />
+                  </div>
+                  <Button type="submit" variant="secondary" size="md" disabled={authLoading}>
+                    <LogIn className="h-4 w-4" />
+                    {authLoading ? 'Signing In...' : 'Fetch My Keys'}
+                  </Button>
+                </form>
+
+                {accountLicenses.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    <div className="text-xs font-semibold">Issued License Keys</div>
+                    {accountLicenses.map((lic) => (
+                      <div
+                        key={lic.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg border border-stone-200 dark:border-[#32242A] bg-[#FAF9F7] dark:bg-[#141013]"
+                      >
+                        <div>
+                          <div className="font-mono text-xs font-bold text-[#DC2626] dark:text-[#FACC15]">
+                            {lic.licenseKey}
+                          </div>
+                          <div className="text-[11px] text-[#57534E] dark:text-stone-400">
+                            {lic.planName} · {lic.organizationName} · {lic.usedDevices}/{lic.maxDevices} devices
+                          </div>
+                        </div>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={authLoading}
+                          onClick={() => void handleActivateExistingKey(undefined, lic.licenseKey)}
+                        >
+                          Activate This Device
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </Surface>
         )}
 
-        {/* Step 4: Cloud & Identity */}
-        {step === 4 && (
+        {/* STEP 3: DESKTOP & ANDROID INSTALLER */}
+        {step === 3 && (
           <Surface padding="lg" className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
-                  04. Connect Your Own Database & Keys (Post-Deploy)
-                </h2>
-                <p className="text-xs text-[#718096] dark:text-slate-400 mt-0.5">
-                  Because WENDORO is open-source, no vendor keys or shared databases are
-                  shipped in the repository. Run standalone now or attach your own backend
-                  after deployment.
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void checkServerStatus()}
-                disabled={serverProbe.checking}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${serverProbe.checking ? 'animate-spin' : ''}`} />
-                {serverProbe.checking ? 'Checking...' : 'Check Server Readiness'}
-              </Button>
-            </div>
-
-            {/* Deployment Infrastructure Selector */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {[
-                {
-                  id: 'standalone' as const,
-                  title: 'Standalone Mode',
-                  desc: 'Start immediately in your browser with zero external database or keys.',
-                  icon: Layers,
-                },
-                {
-                  id: 'cloudflare-neon' as const,
-                  title: 'Cloudflare + PostgreSQL',
-                  desc: 'Add DATABASE_URL, Hyperdrive & secrets in Cloudflare Dashboard after deploy.',
-                  icon: Cloud,
-                },
-                {
-                  id: 'docker-postgres' as const,
-                  title: 'Docker / Self-Hosted VPS',
-                  desc: 'Boot PostgreSQL 16 + Node 24 Express server with .env on your own host.',
-                  icon: Server,
-                },
-              ].map((option) => {
-                const Icon = option.icon;
-                const active = infraMode === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setInfraMode(option.id)}
-                    aria-pressed={active}
-                    className={`p-3.5 rounded-xl border text-left transition-colors cursor-pointer ${
-                      active
-                        ? 'border-[#4169F5] ring-1 ring-[#4169F5] bg-[#4169F5]/5 dark:bg-[#4169F5]/10'
-                        : 'border-slate-200 dark:border-[#223257] bg-[#F6F8FC]/60 dark:bg-[#0E172E]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 text-xs font-semibold text-[#182238] dark:text-slate-100">
-                      <Icon className="h-4 w-4 text-[#4169F5]" />
-                      <span>{option.title}</span>
-                    </div>
-                    <p className="mt-1 text-[11px] text-[#718096] dark:text-slate-400 leading-relaxed">
-                      {option.desc}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Left: Database & Server Secrets Binding Guide */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-[#223257] bg-[#F6F8FC]/70 dark:bg-[#0E172E] space-y-3.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-[#182238] dark:text-slate-100">
-                    <Database className="h-4 w-4 text-[#8B5CF6]" />
-                    <span>PostgreSQL & Server Secrets</span>
-                  </div>
-                  <div className="inline-flex items-center gap-1 p-0.5 rounded-md bg-slate-200/70 dark:bg-[#162342]">
-                    {(['neon', 'supabase', 'postgres-self'] as const).map((prov) => (
-                      <button
-                        key={prov}
-                        type="button"
-                        onClick={() => setDbProvider(prov)}
-                        className={`px-2 py-0.5 text-[11px] font-medium rounded cursor-pointer ${
-                          dbProvider === prov
-                            ? 'bg-white dark:bg-[#101B35] text-[#182238] dark:text-slate-100'
-                            : 'text-[#718096] dark:text-slate-400'
-                        }`}
-                      >
-                        {prov === 'neon' ? 'Neon' : prov === 'supabase' ? 'Supabase' : 'Self-Hosted'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {infraMode === 'standalone' ? (
-                  <p className="text-xs text-[#718096] dark:text-slate-400 leading-relaxed">
-                    You are launching in <strong>Standalone Mode</strong>. Your company
-                    profile, modules, and evaluation workspace save cleanly in this browser
-                    with no database required. Switch to Cloudflare or Docker anytime later.
-                  </p>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#101B35] text-slate-100 font-mono text-[11px]">
-                        <span className="truncate">{migrationCommand}</span>
-                        <button
-                          type="button"
-                          onClick={() => void copyCommand('mig', migrationCommand)}
-                          className="text-slate-300 hover:text-white shrink-0 cursor-pointer"
-                          aria-label="Copy migration command"
-                        >
-                          {copiedCmd === 'mig' ? (
-                            <Check className="h-3.5 w-3.5 text-[#16B8A6]" />
-                          ) : (
-                            <Copy className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#101B35] text-slate-100 font-mono text-[11px]">
-                        <span className="truncate">
-                          {infraMode === 'cloudflare-neon'
-                            ? cloudflareSecretsCommand
-                            : dockerCommand}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void copyCommand(
-                              'infra',
-                              infraMode === 'cloudflare-neon'
-                                ? cloudflareSecretsCommand
-                                : dockerCommand,
-                            )
-                          }
-                          className="text-slate-300 hover:text-white shrink-0 cursor-pointer"
-                          aria-label="Copy deployment secret command"
-                        >
-                          {copiedCmd === 'infra' ? (
-                            <Check className="h-3.5 w-3.5 text-[#16B8A6]" />
-                          ) : (
-                            <Copy className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          downloadTemplateFile(
-                            `${safeDbSlug}.env.example`,
-                            envTemplateContent,
-                            'text/plain',
-                          )
-                        }
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Download .env Template
-                      </Button>
-                      <span className="text-[11px] text-[#718096] dark:text-slate-400">
-                        Add secrets in Cloudflare Dashboard or server `.env` — never in browser UI.
-                      </span>
-                    </div>
-                  </>
-                )}
-
-                {serverProbe.checkedAt && (
-                  <div className="pt-2.5 border-t border-slate-200 dark:border-[#223257] text-[11px] space-y-1">
-                    <div className="flex justify-between text-[#718096] dark:text-slate-400">
-                      <span>Detected Runtime ({serverProbe.checkedAt})</span>
-                      <span className="font-mono text-[#182238] dark:text-slate-200">
-                        {serverProbe.mode === 'node-express' ? 'Node Express Server' : 'Static Edge SPA'}
-                      </span>
-                    </div>
-                    {serverProbe.mode === 'node-express' && (
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 pt-0.5">
-                        <span>
-                          DB:{' '}
-                          <strong className={serverProbe.databaseConfigured ? 'text-[#16B8A6]' : 'text-[#718096]'}>
-                            {serverProbe.databaseConfigured ? 'Connected' : 'Pending'}
-                          </strong>
-                        </span>
-                        <span>
-                          Auth Secret:{' '}
-                          <strong className={serverProbe.authSecretConfigured ? 'text-[#16B8A6]' : 'text-[#718096]'}>
-                            {serverProbe.authSecretConfigured ? 'Set' : 'Pending'}
-                          </strong>
-                        </span>
-                        <span>
-                          AI Key:{' '}
-                          <strong className={serverProbe.aiGatewayConfigured ? 'text-[#16B8A6]' : 'text-[#718096]'}>
-                            {serverProbe.aiGatewayConfigured ? 'Set' : 'Optional'}
-                          </strong>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Right: Firebase Auth & Firestore Realtime */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-[#223257] bg-[#F6F8FC]/70 dark:bg-[#0E172E] space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[#182238] dark:text-slate-100">
-                    Firebase Auth & Firestore Realtime (Optional)
-                  </span>
-                  <span className="text-xs font-medium text-[#16B8A6] capitalize">
-                    {isConfigured ? connectionState : 'Standalone Mode'}
-                  </span>
-                </div>
-                <div className="text-[11px] font-mono text-[#718096] dark:text-slate-400 space-y-1">
-                  <div>project_id: {projectId}</div>
-                  <div className="truncate">database_id: {firestoreDatabaseId}</div>
-                </div>
-                <div className="pt-1 space-y-2.5">
-                  {!isConfigured ? (
-                    <>
-                      <p className="text-xs text-[#718096] dark:text-slate-400 leading-relaxed">
-                        No Firebase project is bundled in the public repo. When you want
-                        Google Sign-In & Firestore presence, add{' '}
-                        <code className="font-mono text-[11px] text-[#182238] dark:text-slate-200">
-                          VITE_FIREBASE_*
-                        </code>{' '}
-                        in your Cloudflare/CI build settings or use{' '}
-                        <code className="font-mono text-[11px] text-[#182238] dark:text-slate-200">
-                          firebase-applet-config.json
-                        </code>{' '}
-                        locally.
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          downloadTemplateFile(
-                            'firebase-applet-config.json',
-                            firebaseTemplateContent,
-                            'application/json',
-                          )
-                        }
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Download Firebase Config Template
-                      </Button>
-                    </>
-                  ) : user ? (
-                    <div className="flex items-center gap-2 text-xs font-medium text-[#16B8A6]">
-                      <CheckCircle2 className="h-4 w-4" />
-                      <span>Connected as {user.email}</span>
-                    </div>
-                  ) : (
-                    <Button variant="primary" size="sm" onClick={() => void signInWithGoogle()}>
-                      Connect Google Admin Account
-                    </Button>
-                  )}
-                  {authError && (
-                    <p className="text-xs text-red-600 dark:text-red-400">{authError}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Surface>
-        )}
-
-        {/* Step 5: Review & Launch */}
-        {step === 5 && (
-          <Surface padding="lg" className="space-y-5">
             <div>
-              <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
-                05. Review Configuration & Launch Workspace
+              <h2 className="text-base font-semibold text-[#1C1917] dark:text-stone-100">
+                3. Install Native Desktop Software & Android App
               </h2>
-              <p className="text-xs text-[#718096] dark:text-slate-400 mt-0.5">
-                Confirm your company isolation boundaries and module activations before launching.
+              <p className="text-xs text-[#57534E] dark:text-stone-400 mt-0.5">
+                WENDORO runs offline-first natively on Desktop and Android, contacting the server only for license verification.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
-              <div className="p-3.5 rounded-lg border border-slate-200 dark:border-[#223257]">
-                <div className="text-[#718096] dark:text-slate-400">Company & Region</div>
-                <div className="mt-1 font-semibold text-sm text-[#182238] dark:text-slate-100">
-                  {companyName}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Native Desktop Card */}
+              <div className="p-4 rounded-xl border border-stone-200 dark:border-[#32242A] bg-[#FAF9F7]/70 dark:bg-[#141013] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-lg bg-[#DC2626] text-white flex items-center justify-center">
+                      <Laptop className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold">Desktop Software</div>
+                      <div className="text-[11px] text-[#57534E] dark:text-stone-400">
+                        Windows (.exe) · macOS (.dmg) · Linux (.AppImage)
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-0.5 font-mono text-[#718096] dark:text-slate-400">
-                  {companyCode} · {region.countryCode} · {region.currency}
+                <p className="text-xs text-[#57534E] dark:text-stone-400 leading-relaxed">
+                  Packaged via Electron (`electron/main.cjs`) with local storage and offline invoice, inventory & POS support.
+                </p>
+                <div className="rounded-lg bg-[#181214] text-stone-100 p-2.5 font-mono text-[11px] flex items-center justify-between gap-2">
+                  <span className="truncate">npm run build && npm --prefix electron run dist:win</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void copyText('desk-cmd', 'npm run build && npm --prefix electron run dist:win')
+                    }
+                    className="text-[#FACC15] hover:underline shrink-0 cursor-pointer inline-flex items-center gap-1"
+                  >
+                    {copiedId === 'desk-cmd' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
-                {taxNumber && (
-                  <div className="mt-0.5 font-mono text-[#16B8A6]">Tax ID: {taxNumber}</div>
-                )}
               </div>
 
-              <div className="p-3.5 rounded-lg border border-slate-200 dark:border-[#223257]">
-                <div className="text-[#718096] dark:text-slate-400">Headquarters Branch</div>
-                <div className="mt-1 font-semibold text-sm text-[#182238] dark:text-slate-100">
-                  {branchName}
+              {/* Android App Card */}
+              <div className="p-4 rounded-xl border border-stone-200 dark:border-[#32242A] bg-[#FAF9F7]/70 dark:bg-[#141013] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-lg bg-[#FACC15] text-[#1C1917] flex items-center justify-center">
+                      <Smartphone className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold">Android Mobile App</div>
+                      <div className="text-[11px] text-[#57534E] dark:text-stone-400">
+                        Signed APK / AAB · Package: com.wendoro.erp
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-0.5 font-mono text-[#718096] dark:text-slate-400">
-                  {branchCode} · {branchCity}
+                <p className="text-xs text-[#57534E] dark:text-stone-400 leading-relaxed">
+                  Native Capacitor Android app (`capacitor.config.ts`) for mobile POS billing, field sales, and warehouse barcode scanning.
+                </p>
+                <div className="rounded-lg bg-[#181214] text-stone-100 p-2.5 font-mono text-[11px] flex items-center justify-between gap-2">
+                  <span className="truncate">npm run build && npx cap sync android</span>
+                  <button
+                    type="button"
+                    onClick={() => void copyText('and-cmd', 'npm run build && npx cap sync android')}
+                    className="text-[#FACC15] hover:underline shrink-0 cursor-pointer inline-flex items-center gap-1"
+                  >
+                    {copiedId === 'and-cmd' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
               </div>
+            </div>
 
-              <div className="p-3.5 rounded-lg border border-slate-200 dark:border-[#223257]">
-                <div className="text-[#718096] dark:text-slate-400">Edition & Quotas</div>
-                <div className="mt-1 font-semibold text-sm text-[#182238] dark:text-slate-100">
-                  {selectedPlan.name}
+            {/* Summary */}
+            <div className="p-4 rounded-xl border border-stone-200 dark:border-[#32242A] bg-white dark:bg-[#141013] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="space-y-0.5">
+                <div className="font-semibold text-[#1C1917] dark:text-stone-100">
+                  {companyName || 'My Organization'} · {region.currency} · {enabledModules.length} Modules
                 </div>
-                <div className="mt-0.5 text-[#718096] dark:text-slate-400">
-                  {enabledModules.length + 2} Active Modules · Max {selectedPlan.maxUsers} Users
+                <div className="text-[#57534E] dark:text-stone-400 flex items-center gap-1.5">
+                  <Terminal className="h-3.5 w-3.5 text-[#DC2626]" />
+                  <span>
+                    License:{' '}
+                    <strong className="font-mono text-[#1C1917] dark:text-[#FACC15]">
+                      {activatedState?.licenseKey || licenseKeyInput || 'Evaluation Mode (Unlicensed)'}
+                    </strong>
+                  </span>
                 </div>
               </div>
+              <span className="text-[11px] font-medium text-[#B45309] dark:text-[#FACC15]">
+                Ready to open offline-capable ERP
+              </span>
             </div>
           </Surface>
         )}
@@ -1161,7 +1000,7 @@ APP_URL="https://erp.example.com"
             Previous
           </Button>
 
-          {step < 5 ? (
+          {step < 3 ? (
             <Button variant="primary" size="md" onClick={handleNext}>
               Continue
               <ArrowRight className="h-4 w-4" />
@@ -1171,9 +1010,9 @@ APP_URL="https://erp.example.com"
               variant="primary"
               size="md"
               disabled={launching}
-              onClick={() => void handleLaunch()}
+              onClick={handleLaunch}
             >
-              {launching ? 'Provisioning Workspace...' : 'Complete Setup & Launch Workspace'}
+              {launching ? 'Launching...' : 'Launch WENDORO Workspace'}
               <CheckCircle2 className="h-4 w-4" />
             </Button>
           )}

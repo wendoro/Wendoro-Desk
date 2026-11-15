@@ -11,15 +11,15 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    'bg-[#4169F5] text-white hover:bg-[#3257DB] border border-transparent shadow-xs',
+    'bg-[#DC2626] text-white hover:bg-[#B91C1C] border border-transparent shadow-xs',
   secondary:
-    'bg-[#101B35] text-white hover:bg-[#1A294D] dark:bg-slate-100 dark:text-[#101B35] dark:hover:bg-white border border-transparent',
+    'bg-[#FACC15] text-[#1C1917] hover:bg-[#EAB308] border border-amber-400/60 font-semibold shadow-xs',
   outline:
-    'bg-white text-[#182238] border border-slate-200 hover:bg-slate-50 dark:bg-[#101B35] dark:text-slate-100 dark:border-[#223257] dark:hover:bg-[#162342]',
+    'bg-white text-[#1C1917] border border-stone-200 hover:bg-stone-50 dark:bg-[#1B1417] dark:text-stone-100 dark:border-[#32242A] dark:hover:bg-[#251B20]',
   ghost:
-    'bg-transparent text-[#182238] hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-[#162342] border border-transparent',
+    'bg-transparent text-[#1C1917] hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-[#251B20] border border-transparent',
   danger:
-    'bg-red-600 text-white hover:bg-red-700 border border-transparent',
+    'bg-red-700 text-white hover:bg-red-800 border border-transparent',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -36,7 +36,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         type={type}
         className={cn(
           'inline-flex items-center justify-center rounded-lg font-medium whitespace-nowrap shrink-0 transition-colors duration-150',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4169F5] focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-[#0B1224]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#DC2626] focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-[#141013]',
           'disabled:opacity-50 disabled:pointer-events-none cursor-pointer',
           variantClasses[variant],
           sizeClasses[size],

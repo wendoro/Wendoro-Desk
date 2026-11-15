@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toNodeHandler } from 'better-auth/node';
@@ -8,6 +9,7 @@ import { AuditLogRecord } from '@/src/core/store/erpTypes';
 import { getPostgresPool, migrateBackupJsonToPostgres } from '@/src/db/client';
 import { getAuthReadiness, getBetterAuth } from '@/src/server/auth';
 import { encryptCredential } from '@/src/server/crypto';
+import { LicenseServerError, createLicenseService } from '@/src/server/licensing';
 import {
   AuthenticatedRequest,
   createRequireCompanyPermission,
@@ -19,10 +21,23 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const distDir = path.resolve(__dirname, 'dist');
+const licenseService = createLicenseService();
 
 app.disable('x-powered-by');
 
-// In-memory security audit ring buffer (flushed to PostgreSQL `audit.audit_logs` when configured)
+// Allow native Desktop (Electron) & Android (Capacitor) clients to authenticate licenses
+app.use('/api/licenses', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
+// In-memory security audit ring buffer
 const serverAuditBuffer: AuditLogRecord[] = [];
 const recordServerAudit = (entry: AuditLogRecord) => {
   serverAuditBuffer.unshift(entry);
@@ -48,31 +63,123 @@ app.all('/api/auth/*', (req, res) => {
 
 app.use(express.json({ limit: '2mb' }));
 
-// Health endpoint for Docker, Kubernetes, Railway, Render, and load balancers
+// Health endpoint for License Server & Desktop/Android ping
 app.get('/api/health', (_req, res) => {
   res.status(200).json({
     status: 'ok',
-    service: 'wendoro-erp',
+    service: 'wendoro-license-server',
     runtime: 'node-express',
     timestamp: new Date().toISOString(),
   });
 });
 
-// Safe post-deploy setup readiness check (returns booleans only, never secret values)
+// License server readiness check (returns booleans & counts only, zero secrets)
 app.get('/api/setup/status', (_req, res) => {
   const readiness = getAuthReadiness();
-  const hasValue = (val: string | undefined, placeholder: string) =>
-    Boolean(val && val.trim().length > 0 && !val.includes(placeholder));
+  const stats = licenseService.getServerStats();
 
   res.status(200).json({
     runtime: 'node-express',
+    licenseServerReady: true,
+    registeredAccounts: stats.registeredAccounts,
+    issuedLicenses: stats.issuedLicenses,
+    activeActivations: stats.activeActivations,
     databaseConfigured: readiness.databaseConfigured,
     authSecretConfigured: readiness.authSecretConfigured,
     betterAuthReady: readiness.betterAuthReady,
-    aiGatewayConfigured: hasValue(process.env.GEMINI_API_KEY, 'MY_GEMINI_API_KEY'),
-    appUrlConfigured: hasValue(process.env.APP_URL, 'MY_APP_URL'),
     timestamp: new Date().toISOString(),
   });
+});
+
+/* -------------------------------------------------------------------------- */
+/* WENDORO License Registration, Activation & Verification API                */
+/* -------------------------------------------------------------------------- */
+
+app.get('/api/licenses/status', (_req, res) => {
+  res.status(200).json({
+    ...licenseService.getServerStats(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.post('/api/licenses/register', (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const result = licenseService.registerAndIssueLicense({
+      email: String(body.email ?? ''),
+      password: String(body.password ?? ''),
+      fullName: String(body.fullName ?? ''),
+      organizationName: String(body.organizationName ?? ''),
+      planTier: (body.planTier as never) ?? 'free',
+      platform: (body.platform as never) ?? 'both',
+      deviceId: body.deviceId ? String(body.deviceId) : undefined,
+      deviceName: body.deviceName ? String(body.deviceName) : undefined,
+      devicePlatform: (body.devicePlatform as never) ?? 'desktop',
+      appVersion: body.appVersion ? String(body.appVersion) : undefined,
+    });
+    res.status(201).json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof LicenseServerError) {
+      res.status(err.statusCode).json({ error: err.code, message: err.message });
+      return;
+    }
+    res.status(500).json({
+      error: 'LICENSE_REGISTRATION_FAILED',
+      message: 'Unable to register license account.',
+    });
+  }
+});
+
+app.post('/api/licenses/login', (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const result = licenseService.loginAndListLicenses({
+      email: String(body.email ?? ''),
+      password: String(body.password ?? ''),
+    });
+    res.status(200).json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof LicenseServerError) {
+      res.status(err.statusCode).json({ error: err.code, message: err.message });
+      return;
+    }
+    res.status(500).json({
+      error: 'LICENSE_LOGIN_FAILED',
+      message: 'Unable to authenticate license account.',
+    });
+  }
+});
+
+app.post('/api/licenses/activate', (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const result = licenseService.activateLicense({
+      licenseKey: String(body.licenseKey ?? ''),
+      deviceId: String(body.deviceId ?? ''),
+      deviceName: body.deviceName ? String(body.deviceName) : undefined,
+      platform: (body.platform as never) ?? 'desktop',
+      appVersion: body.appVersion ? String(body.appVersion) : undefined,
+    });
+    res.status(200).json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof LicenseServerError) {
+      res.status(err.statusCode).json({ error: err.code, message: err.message });
+      return;
+    }
+    res.status(500).json({
+      error: 'LICENSE_ACTIVATION_FAILED',
+      message: 'Unable to activate license key.',
+    });
+  }
+});
+
+app.post('/api/licenses/verify', (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const result = licenseService.verifyLicense({
+    licenseKey: String(body.licenseKey ?? ''),
+    deviceId: body.deviceId ? String(body.deviceId) : undefined,
+  });
+  res.status(result.valid ? 200 : 404).json(result);
 });
 
 // Resolve authenticated session principal via Better Auth session validation
@@ -157,7 +264,7 @@ app.get(
   },
 );
 
-// Protected transactional PostgreSQL migration endpoint (localStorage JSON -> Postgres)
+// Protected transactional PostgreSQL migration endpoint
 app.post(
   '/api/erp/:companyId/migrate',
   requirePermission('system.backup.restore'),
@@ -201,7 +308,7 @@ app.post(
   },
 );
 
-// Protected integration credential vault endpoint (encrypts with AES-256-GCM; never echoes secret)
+// Protected integration credential vault endpoint
 app.post(
   '/api/erp/:companyId/credentials',
   requirePermission('system.backup.restore'),
@@ -258,14 +365,26 @@ app.post(
   },
 );
 
-// Serve static Vite build output
-app.use(express.static(distDir, { index: false }));
+async function startServer() {
+  const isProd = process.env.NODE_ENV === 'production';
 
-// SPA fallback for client-side routing
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(distDir, 'index.html'));
-});
+  if (!isProd || !fs.existsSync(distDir)) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    app.use(express.static(distDir, { index: false }));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distDir, 'index.html'));
+    });
+  }
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`WENDORO ERP server listening on http://0.0.0.0:${port}`);
-});
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`WENDORO License & App server listening on http://0.0.0.0:${port}`);
+  });
+}
+
+void startServer();

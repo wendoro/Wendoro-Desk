@@ -41,8 +41,24 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
         group: 'Workspace',
         label: 'Dashboard',
         detail: 'Live KPIs, active apps launcher, recent sales & accounting ledger',
-        icon: <Layers className="h-4 w-4 text-[#4169F5]" />,
+        icon: <Layers className="h-4 w-4 text-[#DC2626]" />,
         action: () => onNavigate('overview'),
+      },
+      {
+        id: 'nav-bi',
+        group: 'Workspace',
+        label: 'BI & Analytics',
+        detail: 'Executive profitability, customer & SKU rankings, pipeline funnel & custom reports',
+        icon: <Layers className="h-4 w-4 text-[#DC2626]" />,
+        action: () => onNavigate('bi_analytics'),
+      },
+      {
+        id: 'nav-workflow',
+        group: 'Workspace',
+        label: 'Workflow Studio',
+        detail: 'Configure approval thresholds, custom fields across modules, and audit trail',
+        icon: <Shield className="h-4 w-4 text-[#F59E0B]" />,
+        action: () => onNavigate('workflow_studio'),
       },
       {
         id: 'nav-admin',
@@ -63,9 +79,9 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
       {
         id: 'nav-deploy',
         group: 'Workspace',
-        label: 'Deploy & Distribute Guide',
-        detail: 'Cloudflare Workers, Docker Compose, Node.js 24 PaaS, Vercel & Netlify',
-        icon: <Rocket className="h-4 w-4 text-[#4169F5]" />,
+        label: 'Desktop & Android Install',
+        detail: 'Desktop Electron (.exe/.dmg/.AppImage), Android APK, and License Auth Server',
+        icon: <Rocket className="h-4 w-4 text-[#DC2626]" />,
         action: () => onNavigate('deploy'),
       },
       {
@@ -73,7 +89,7 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
         group: 'Platform Specs',
         label: 'Architecture & Database Schema',
         detail: 'PostgreSQL Drizzle definitions, namespaces & RLS migration 0000',
-        icon: <Layers className="h-4 w-4 text-[#8B5CF6]" />,
+        icon: <Layers className="h-4 w-4 text-[#F59E0B]" />,
         action: () => onNavigate('schema'),
       },
       {
@@ -91,7 +107,7 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
       group: 'Switch Company Context',
       label: m.companyName,
       detail: `${m.companyCode} · ${m.roleName} · ${m.baseCurrency}`,
-      icon: <Building2 className="h-4 w-4 text-[#4169F5]" />,
+      icon: <Building2 className="h-4 w-4 text-[#DC2626]" />,
       action: () => switchCompany(m.companyId),
     }));
 
@@ -115,7 +131,7 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
         theme === 'dark' ? (
           <Sun className="h-4 w-4 text-amber-500" />
         ) : (
-          <Moon className="h-4 w-4 text-[#4169F5]" />
+          <Moon className="h-4 w-4 text-[#DC2626]" />
         ),
       action: toggleTheme,
     };
@@ -161,18 +177,18 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 bg-[#101B35]/50 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 bg-[#1B1417]/50 backdrop-blur-[2px]"
       role="dialog"
       aria-modal="true"
       aria-label="Global Command Palette"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl rounded-xl bg-white dark:bg-[#101B35] border border-slate-200 dark:border-[#223257] shadow-xl overflow-hidden"
+        className="w-full max-w-xl rounded-xl bg-white dark:bg-[#1B1417] border border-slate-200 dark:border-[#32242A] shadow-xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <div className="flex items-center gap-3 px-4 h-12 border-b border-slate-200 dark:border-[#223257]">
+        <div className="flex items-center gap-3 px-4 h-12 border-b border-slate-200 dark:border-[#32242A]">
           <Search className="h-4 w-4 text-[#718096] dark:text-slate-400 shrink-0" />
           <input
             ref={inputRef}
@@ -180,13 +196,13 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Jump to workspace view, module, or company..."
-            className="w-full bg-transparent text-sm text-[#182238] dark:text-slate-100 placeholder:text-[#718096] dark:placeholder:text-slate-500 focus:outline-none"
+            className="w-full bg-transparent text-sm text-[#1C1917] dark:text-slate-100 placeholder:text-[#718096] dark:placeholder:text-slate-500 focus:outline-none"
           />
           <button
             type="button"
             onClick={onClose}
             aria-label="Close command palette"
-            className="p-1 rounded-md text-[#718096] hover:text-[#182238] dark:hover:text-slate-100 cursor-pointer"
+            className="p-1 rounded-md text-[#718096] hover:text-[#1C1917] dark:hover:text-slate-100 cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
@@ -212,14 +228,14 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
                       onMouseEnter={() => setSelectedIndex(idx)}
                       className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg text-left transition-colors cursor-pointer ${
                         active
-                          ? 'bg-[#EFF3FA] dark:bg-[#162342]'
-                          : 'hover:bg-slate-50 dark:hover:bg-[#162342]/60'
+                          ? 'bg-[#EFF3FA] dark:bg-[#251B20]'
+                          : 'hover:bg-slate-50 dark:hover:bg-[#251B20]/60'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="shrink-0">{item.icon}</span>
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-[#182238] dark:text-slate-100 truncate">
+                          <div className="text-sm font-medium text-[#1C1917] dark:text-slate-100 truncate">
                             {item.label}
                           </div>
                           <div className="text-xs text-[#718096] dark:text-slate-400 truncate">
@@ -238,7 +254,7 @@ export function CommandPalette({ isOpen, onClose, onNavigate }: CommandPalettePr
           )}
         </div>
 
-        <div className="flex items-center justify-between px-4 py-2 border-t border-slate-200 dark:border-[#223257] bg-[#F6F8FC] dark:bg-[#0E172E] text-[11px] text-[#718096] dark:text-slate-400">
+        <div className="flex items-center justify-between px-4 py-2 border-t border-slate-200 dark:border-[#32242A] bg-[#FAF9F7] dark:bg-[#141013] text-[11px] text-[#718096] dark:text-slate-400">
           <span>Use Up/Down arrows to select · Enter to open</span>
           <span>Esc to close</span>
         </div>

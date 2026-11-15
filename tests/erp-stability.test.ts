@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   ErpDomainError,
+  computeAgingReport,
+  computeFinancialStatements,
   computeTrialBalance,
   createUuid,
   ensureCompanyAccounts,
@@ -24,9 +29,18 @@ import {
   txRecordSalesPayment,
   txRunMonthlyPayroll,
 } from '@/src/core/engine/erpTransactions';
+import {
+  txApproveExpenseClaim,
+  txCompleteWorkOrder,
+  txCreateCreditNote,
+  txRegisterFixedAsset,
+  txRunMonthlyDepreciation,
+  txTransferStockBetweenWarehouses,
+} from '@/src/core/engine/erpModuleTransactions';
 import { migrateBackupJsonToPostgres } from '@/src/db/client';
 import { AuthorizationError, authorizeCompanyAccess } from '@/src/server/security';
 import { decryptCredential, encryptCredential } from '@/src/server/crypto';
+import { LicenseServerError, createLicenseService } from '@/src/server/licensing';
 import type { SessionPrincipal } from '@/src/core/contracts/tenancy';
 import type { AuditLogRecord, ErpDatabaseState } from '@/src/core/store/erpTypes';
 
@@ -616,3 +630,407 @@ test('8. Failed multi-line dispatch transaction rolls back all prior line deduct
   assert.equal(state.journals.length, journalsBefore);
   assert.equal(state.stockMovements.length, movementsBefore);
 });
+
+test('9. Manufacturing BOM work order consumes raw materials, receives finished goods, and posts conversion capitalization atomically', () => {
+  let state = baseState();
+  const rawSteel = txAddCatalogueItem(state, SCOPE_A, {
+    sku: 'RAW-STEEL',
+    name: 'Cold Rolled Steel Sheet',
+    type: 'physical',
+    category: 'Raw Material',
+    unit: 'Kg',
+    costPrice: 25,
+    sellingPrice: 0,
+    taxRate: 0,
+    trackStock: true,
+    stockOnHand: 20,
+    reorderLevel: 5,
+  });
+  state = rawSteel.nextState;
+
+  const finishedFrame = txAddCatalogueItem(state, SCOPE_A, {
+    sku: 'FG-FRAME',
+    name: 'Industrial Rack Frame',
+    type: 'physical',
+    category: 'Finished Goods',
+    unit: 'Nos',
+    costPrice: 100,
+    sellingPrice: 280,
+    taxRate: 18,
+    trackStock: true,
+    stockOnHand: 0,
+    reorderLevel: 2,
+  });
+  state = finishedFrame.nextState;
+
+  const bomId = createUuid();
+  const woId = createUuid();
+  const shortWoId = createUuid();
+
+  state = {
+    ...state,
+    boms: [
+      {
+        id: bomId,
+        companyId: COMPANY_A,
+        bomCode: 'BOM-0001',
+        finishedItemId: finishedFrame.item.id,
+        finishedSku: finishedFrame.item.sku,
+        finishedName: finishedFrame.item.name,
+        components: [
+          {
+            itemId: rawSteel.item.id,
+            sku: rawSteel.item.sku,
+            name: rawSteel.item.name,
+            quantityPerUnit: 4,
+            unitCost: 25,
+          },
+        ],
+        laborCostPerUnit: 15,
+        overheadCostPerUnit: 10,
+        notes: 'Standard steel frame assembly',
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    workOrders: [
+      {
+        id: woId,
+        companyId: COMPANY_A,
+        woNumber: 'WO-0001',
+        bomId,
+        finishedItemId: finishedFrame.item.id,
+        finishedSku: finishedFrame.item.sku,
+        finishedName: finishedFrame.item.name,
+        targetQty: 3,
+        completedQty: 0,
+        status: 'materials_issued',
+        startDate: '2026-11-12',
+        dueDate: '2026-11-20',
+        totalMaterialCost: 0,
+        totalConversionCost: 0,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: shortWoId,
+        companyId: COMPANY_A,
+        woNumber: 'WO-0002',
+        bomId,
+        finishedItemId: finishedFrame.item.id,
+        finishedSku: finishedFrame.item.sku,
+        finishedName: finishedFrame.item.name,
+        targetQty: 10, // needs 40kg, only 20kg -> 8kg left after WO-0001
+        completedQty: 0,
+        status: 'planned',
+        startDate: '2026-11-13',
+        dueDate: '2026-11-22',
+        totalMaterialCost: 0,
+        totalConversionCost: 0,
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  };
+
+  // Complete WO-0001 (3 units * 4 kg = 12 kg raw material consumed, 3 * $25 conversion = $75 capitalized)
+  const completed = txCompleteWorkOrder(state, SCOPE_A, {
+    workOrderId: woId,
+    completionDate: '2026-11-14',
+  });
+  state = completed.nextState;
+
+  assert.equal(completed.workOrder.status, 'completed');
+  assert.equal(completed.workOrder.totalMaterialCost, 300); // 12 * 25
+  assert.equal(completed.workOrder.totalConversionCost, 75); // 3 * (15 + 10)
+
+  const steelAfter = state.catalogue.find((c) => c.id === rawSteel.item.id)!;
+  const fgAfter = state.catalogue.find((c) => c.id === finishedFrame.item.id)!;
+  assert.equal(steelAfter.stockOnHand, 8);
+  assert.equal(fgAfter.stockOnHand, 3);
+  assert.equal(fgAfter.inventoryAssetValue, 375);
+  assert.equal(fgAfter.costPrice, 125); // (300 + 75) / 3
+  assert.ok(state.stockMovements.some((m) => m.movementType === 'production_output' && m.reference === 'WO-0001'));
+
+  // Insufficient raw material on WO-0002 rolls back cleanly
+  assert.throws(
+    () => txCompleteWorkOrder(state, SCOPE_A, { workOrderId: shortWoId, completionDate: '2026-11-15' }),
+    (err: unknown) => err instanceof ErpDomainError && err.code === 'INSUFFICIENT_RAW_MATERIAL',
+  );
+  assert.equal(state.catalogue.find((c) => c.id === rawSteel.item.id)?.stockOnHand, 8);
+
+  const tb = computeTrialBalance(state, COMPANY_A);
+  assert.equal(tb.isBalanced, true);
+});
+
+test('10. Fixed asset registration & monthly straight-line depreciation post balanced journals and block duplicate period runs', () => {
+  let state = baseState();
+
+  const acquired = txRegisterFixedAsset(state, SCOPE_A, {
+    name: 'CNC Milling Machine',
+    category: 'Machinery',
+    purchaseDate: '2026-11-01',
+    purchaseCost: 13000,
+    salvageValue: 1000,
+    usefulLifeMonths: 12,
+    postAcquisitionJournal: true,
+    paymentAccountCode: '1000',
+  });
+  state = acquired.nextState;
+
+  assert.equal(acquired.asset.assetCode, 'FA-0001');
+  assert.equal(acquired.asset.accumulatedDepreciation, 0);
+
+  // Monthly depreciation = (13000 - 1000) / 12 = 1000
+  const dep = txRunMonthlyDepreciation(state, SCOPE_A, {
+    periodKey: '2026-11',
+    postingDate: '2026-11-30',
+  });
+  state = dep.nextState;
+  assert.equal(dep.totalDepreciation, 1000);
+  assert.equal(dep.assetsCount, 1);
+
+  const assetAfter = state.fixedAssets.find((a) => a.id === acquired.asset.id)!;
+  assert.equal(assetAfter.accumulatedDepreciation, 1000);
+
+  // Second run for the same fiscal period must fail cleanly
+  assert.throws(
+    () => txRunMonthlyDepreciation(state, SCOPE_A, { periodKey: '2026-11', postingDate: '2026-11-30' }),
+    (err: unknown) => err instanceof ErpDomainError && err.code === 'NO_DEPRECIATION_DUE',
+  );
+
+  const tb = computeTrialBalance(state, COMPANY_A);
+  assert.equal(tb.isBalanced, true);
+  assert.equal(tb.rows.find((r) => r.code === '1500')?.netBalance, 13000);
+  assert.equal(tb.rows.find((r) => r.code === '5500')?.netBalance, 1000);
+});
+
+test('11. Credit notes restore inventory & reverse AR/Revenue; Expense claims post balanced journals; Warehouse transfers block over-transfer', () => {
+  let state = baseState();
+  const itemRes = txAddCatalogueItem(state, SCOPE_A, {
+    sku: 'RTR-AX6',
+    name: 'Enterprise Wi-Fi 6 Router',
+    type: 'physical',
+    category: 'Networking',
+    unit: 'Nos',
+    costPrice: 80,
+    sellingPrice: 200,
+    taxRate: 10,
+    trackStock: true,
+    stockOnHand: 10,
+    reorderLevel: 2,
+  });
+  state = itemRes.nextState;
+
+  const inv = txCreateSalesOrder(state, SCOPE_A, {
+    documentType: 'invoice',
+    customerName: 'Branch Office Corp',
+    issueDate: '2026-11-10',
+    dueDate: '2026-11-20',
+    status: 'sent',
+    lines: [{ itemId: itemRes.item.id, description: 'Enterprise Wi-Fi 6 Router', quantity: 2, unitPrice: 200, taxRate: 10 }],
+    notes: 'Direct delivery',
+  });
+  state = inv.nextState;
+  state = txDispatchSalesOrder(state, SCOPE_A, { orderId: inv.order.id, dispatchDate: '2026-11-11' }).nextState;
+  assert.equal(state.catalogue.find((c) => c.id === itemRes.item.id)?.stockOnHand, 8);
+
+  // Issue Credit Note restoring stock
+  const cn = txCreateCreditNote(state, SCOPE_A, {
+    salesOrderId: inv.order.id,
+    issueDate: '2026-11-12',
+    reason: 'Customer returned unopened units',
+    restoreStock: true,
+  });
+  state = cn.nextState;
+
+  assert.equal(cn.creditNote.grandTotal, 440);
+  assert.equal(state.catalogue.find((c) => c.id === itemRes.item.id)?.stockOnHand, 10);
+  assert.equal(state.salesOrders.find((o) => o.id === inv.order.id)?.status, 'cancelled');
+
+  // Expense Claim approval & posting
+  const claimId = createUuid();
+  state = {
+    ...state,
+    expenseClaims: [
+      {
+        id: claimId,
+        companyId: COMPANY_A,
+        claimNumber: 'EXP-0001',
+        employeeName: 'Aarav Mehta',
+        category: 'Travel',
+        expenseDate: '2026-11-13',
+        amount: 220,
+        taxAmount: 20,
+        description: 'Client onsite visit cab & toll',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  };
+  const expPosted = txApproveExpenseClaim(state, SCOPE_A, {
+    claimId,
+    payImmediately: true,
+    postingDate: '2026-11-13',
+  });
+  state = expPosted.nextState;
+  assert.equal(expPosted.claim.status, 'paid');
+
+  // Warehouse transfer & over-transfer rejection
+  const trf = txTransferStockBetweenWarehouses(state, SCOPE_A, {
+    itemId: itemRes.item.id,
+    fromWarehouse: 'Main DC',
+    toWarehouse: 'West Hub',
+    quantity: 4,
+    notes: 'Rebalance stock',
+  });
+  state = trf.nextState;
+  assert.equal(trf.transfer.quantity, 4);
+
+  assert.throws(
+    () =>
+      txTransferStockBetweenWarehouses(state, SCOPE_A, {
+        itemId: itemRes.item.id,
+        fromWarehouse: 'Main DC',
+        toWarehouse: 'West Hub',
+        quantity: 99,
+        notes: 'Over transfer',
+      }),
+    (err: unknown) => err instanceof ErpDomainError && err.code === 'INSUFFICIENT_AVAILABLE_STOCK',
+  );
+
+  const tb = computeTrialBalance(state, COMPANY_A);
+  assert.equal(tb.isBalanced, true);
+  assert.equal(tb.rows.find((r) => r.code === '1200')?.netBalance, 0);
+  assert.equal(tb.rows.find((r) => r.code === '4000')?.netBalance, 0);
+});
+
+test('12. Approval rules enforce holds on large POs; Financial Statements balance and Aging buckets overdue AR/AP accurately', () => {
+  let state = baseState();
+  state = {
+    ...state,
+    approvalRules: [
+      {
+        id: createUuid(),
+        companyId: COMPANY_A,
+        name: 'Director PO Sign-off > $5,000',
+        module: 'purchase',
+        minAmount: 5000,
+        approverRole: 'finance_manager',
+        active: true,
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  };
+
+  // PO above $5,000 must be held in draft with requiresApproval = true
+  const largePo = txCreatePurchaseOrder(state, SCOPE_A, {
+    vendorName: 'Global Server Supply',
+    orderDate: '2026-09-01',
+    expectedDate: '2026-09-15',
+    status: 'ordered',
+    lines: [{ description: 'Rack Server Cluster', quantity: 1, unitPrice: 6000, taxRate: 10 }],
+    notes: 'Q4 expansion',
+  });
+  state = largePo.nextState;
+  assert.equal(largePo.order.requiresApproval, true);
+  assert.equal(largePo.order.status, 'draft');
+
+  // Create two unpaid invoices with different due dates to test Aging buckets
+  const invCurrent = txCreateSalesOrder(state, SCOPE_A, {
+    documentType: 'invoice',
+    customerName: 'Current Client',
+    issueDate: '2026-11-10',
+    dueDate: '2026-11-30',
+    status: 'sent',
+    lines: [{ description: 'Annual Retainer', quantity: 1, unitPrice: 1000, taxRate: 0 }],
+    notes: 'Current bucket',
+  });
+  state = invCurrent.nextState;
+
+  const invOverdue45 = txCreateSalesOrder(state, SCOPE_A, {
+    documentType: 'invoice',
+    customerName: 'Delayed Client',
+    issueDate: '2026-09-01',
+    dueDate: '2026-10-01',
+    status: 'sent',
+    lines: [{ description: 'Integration Project', quantity: 1, unitPrice: 2500, taxRate: 0 }],
+    notes: '45 days overdue as of 2026-11-15',
+  });
+  state = invOverdue45.nextState;
+
+  const aging = computeAgingReport(state, COMPANY_A, '2026-11-15');
+  assert.equal(aging.ar.current, 1000);
+  assert.equal(aging.ar.days31to60, 2500);
+  assert.equal(aging.ar.total, 3500);
+
+  const fsReport = computeFinancialStatements(state, COMPANY_A);
+  assert.equal(fsReport.balanceSheetBalanced, true);
+  assert.equal(fsReport.totalRevenue, 3500);
+  assert.equal(fsReport.totalAssets, 3500);
+});
+
+test('13. License authentication server registers users, issues signed keys, binds devices, and rejects invalid passwords or keys', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wendoro-lic-test-'));
+  try {
+    const service = createLicenseService({
+      dataDir: tmpDir,
+      signingSecret: 'unit-test-signing-secret-at-least-32-chars',
+    });
+
+    // 1. Register account & issue key
+    const reg = service.registerAndIssueLicense({
+      email: 'ops@redyellow.example',
+      password: 'StrongPassword123',
+      fullName: 'Rohan Kapoor',
+      organizationName: 'RedYellow Logistics',
+      planTier: 'professional',
+      platform: 'both',
+    });
+    assert.ok(reg.license.licenseKey.startsWith('WND-PROF-'));
+    assert.equal(reg.license.status, 'active');
+    assert.equal(reg.license.usedDevices, 0);
+
+    // 2. Login lists issued licenses; wrong password rejects with 401
+    const loginRes = service.loginAndListLicenses({
+      email: 'ops@redyellow.example',
+      password: 'StrongPassword123',
+    });
+    assert.equal(loginRes.licenses.length, 1);
+    assert.equal(loginRes.licenses[0]?.licenseKey, reg.license.licenseKey);
+
+    assert.throws(
+      () =>
+        service.loginAndListLicenses({
+          email: 'ops@redyellow.example',
+          password: 'WrongPassword!',
+        }),
+      (err: unknown) => err instanceof LicenseServerError && err.statusCode === 401,
+    );
+
+    // 3. Activate key on a desktop device
+    const act = service.activateLicense({
+      licenseKey: reg.license.licenseKey,
+      deviceId: 'desktop-win-001',
+      deviceName: 'Warehouse Windows PC',
+      platform: 'desktop',
+      appVersion: '1.0.0',
+    });
+    assert.equal(act.valid, true);
+    assert.ok(act.activationToken.length > 20);
+    assert.equal(act.license.usedDevices, 1);
+
+    // 4. Verify real key & reject tampered key
+    const okCheck = service.verifyLicense({
+      licenseKey: reg.license.licenseKey,
+      deviceId: 'desktop-win-001',
+    });
+    assert.equal(okCheck.valid, true);
+    assert.equal(okCheck.deviceBound, true);
+
+    const badCheck = service.verifyLicense({
+      licenseKey: 'WND-PROF-00000000-BAD00000',
+    });
+    assert.equal(badCheck.valid, false);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+

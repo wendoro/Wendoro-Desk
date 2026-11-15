@@ -84,6 +84,18 @@ const STANDARD_ACCOUNTS: Array<{
     subType: 'input_tax',
   },
   {
+    code: '1500',
+    name: 'Fixed Assets',
+    category: 'asset',
+    subType: 'fixed_asset',
+  },
+  {
+    code: '1510',
+    name: 'Accumulated Depreciation',
+    category: 'asset',
+    subType: 'accumulated_depreciation',
+  },
+  {
     code: '2100',
     name: 'Accounts Payable',
     category: 'liability',
@@ -126,6 +138,12 @@ const STANDARD_ACCOUNTS: Array<{
     name: 'Inventory Adjustment Expense',
     category: 'expense',
     subType: 'operating_expense',
+  },
+  {
+    code: '5500',
+    name: 'Depreciation Expense',
+    category: 'expense',
+    subType: 'depreciation_expense',
   },
 ];
 
@@ -561,4 +579,125 @@ export function computeTrialBalance(
     totalCredits,
     isBalanced: Math.abs(totalDebits - totalCredits) < 0.005,
   };
+}
+
+export interface FinancialStatementsReport {
+  revenueRows: TrialBalanceRow[];
+  cogsTotal: number;
+  grossProfit: number;
+  operatingExpenseRows: TrialBalanceRow[];
+  totalRevenue: number;
+  totalExpenses: number;
+  netIncome: number;
+  assetRows: TrialBalanceRow[];
+  liabilityRows: TrialBalanceRow[];
+  equityRows: TrialBalanceRow[];
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquityWithNetIncome: number;
+  balanceSheetBalanced: boolean;
+}
+
+export function computeFinancialStatements(
+  state: ErpDatabaseState,
+  companyId: string,
+): FinancialStatementsReport {
+  const tb = computeTrialBalance(state, companyId);
+  const revenueRows = tb.rows.filter((r) => r.category === 'revenue');
+  const expenseRows = tb.rows.filter((r) => r.category === 'expense');
+  const cogsTotal = roundMoney(
+    expenseRows.filter((r) => r.code === '5000').reduce((s, r) => s + r.netBalance, 0),
+  );
+  const operatingExpenseRows = expenseRows.filter((r) => r.code !== '5000');
+
+  const totalRevenue = roundMoney(revenueRows.reduce((s, r) => s + r.netBalance, 0));
+  const totalExpenses = roundMoney(expenseRows.reduce((s, r) => s + r.netBalance, 0));
+  const grossProfit = roundMoney(totalRevenue - cogsTotal);
+  const netIncome = roundMoney(totalRevenue - totalExpenses);
+
+  const assetRows = tb.rows.filter((r) => r.category === 'asset');
+  const liabilityRows = tb.rows.filter((r) => r.category === 'liability');
+  const equityRows = tb.rows.filter((r) => r.category === 'equity');
+
+  const totalAssets = roundMoney(assetRows.reduce((s, r) => s + r.netBalance, 0));
+  const totalLiabilities = roundMoney(liabilityRows.reduce((s, r) => s + r.netBalance, 0));
+  const baseEquity = roundMoney(equityRows.reduce((s, r) => s + r.netBalance, 0));
+  const totalEquityWithNetIncome = roundMoney(baseEquity + netIncome);
+  const balanceSheetBalanced =
+    Math.abs(totalAssets - (totalLiabilities + totalEquityWithNetIncome)) < 0.02;
+
+  return {
+    revenueRows,
+    cogsTotal,
+    grossProfit,
+    operatingExpenseRows,
+    totalRevenue,
+    totalExpenses,
+    netIncome,
+    assetRows,
+    liabilityRows,
+    equityRows,
+    totalAssets,
+    totalLiabilities,
+    totalEquityWithNetIncome,
+    balanceSheetBalanced,
+  };
+}
+
+export interface AgingBuckets {
+  current: number;
+  days1to30: number;
+  days31to60: number;
+  days61to90: number;
+  days90Plus: number;
+  total: number;
+}
+
+export interface AgingReport {
+  ar: AgingBuckets;
+  ap: AgingBuckets;
+}
+
+function addDaysBucket(buckets: AgingBuckets, dueDate: string, amount: number, asOfDate: string) {
+  if (amount <= 0) return;
+  const dueMs = Date.parse(dueDate);
+  const refMs = Date.parse(asOfDate);
+  const daysOverdue = Number.isFinite(dueMs) && Number.isFinite(refMs)
+    ? Math.floor((refMs - dueMs) / 86_400_000)
+    : 0;
+
+  if (daysOverdue <= 0) buckets.current = roundMoney(buckets.current + amount);
+  else if (daysOverdue <= 30) buckets.days1to30 = roundMoney(buckets.days1to30 + amount);
+  else if (daysOverdue <= 60) buckets.days31to60 = roundMoney(buckets.days31to60 + amount);
+  else if (daysOverdue <= 90) buckets.days61to90 = roundMoney(buckets.days61to90 + amount);
+  else buckets.days90Plus = roundMoney(buckets.days90Plus + amount);
+
+  buckets.total = roundMoney(buckets.total + amount);
+}
+
+export function computeAgingReport(
+  state: ErpDatabaseState,
+  companyId: string,
+  asOfDate = new Date().toISOString().slice(0, 10),
+): AgingReport {
+  const ar: AgingBuckets = { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90Plus: 0, total: 0 };
+  const ap: AgingBuckets = { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90Plus: 0, total: 0 };
+
+  for (const so of state.salesOrders) {
+    if (so.companyId !== companyId || so.documentType !== 'invoice' || so.status === 'cancelled') continue;
+    const balance = roundMoney(so.grandTotal - so.amountPaid);
+    if (balance > 0.005) {
+      addDaysBucket(ar, so.dueDate, balance, asOfDate);
+    }
+  }
+
+  for (const po of state.purchaseOrders) {
+    if (po.companyId !== companyId || !po.ledgerPosted || po.status === 'cancelled') continue;
+    const balance = roundMoney(po.grandTotal - po.amountPaid);
+    if (balance > 0.005) {
+      addDaysBucket(ap, po.expectedDate, balance, asOfDate);
+    }
+  }
+
+  return { ar, ap };
 }

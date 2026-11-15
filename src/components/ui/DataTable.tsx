@@ -102,7 +102,7 @@ export function DataTable<T>({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={searchPlaceholder}
                 aria-label={searchPlaceholder}
-                className="w-full h-9 pl-9 pr-3 text-sm rounded-lg bg-white dark:bg-[#0E172E] border border-slate-200 dark:border-[#223257] text-[#182238] dark:text-slate-100 placeholder:text-[#718096] dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#4169F5]"
+                className="w-full h-9 pl-9 pr-3 text-sm rounded-lg bg-white dark:bg-[#141013] border border-slate-200 dark:border-[#32242A] text-[#1C1917] dark:text-slate-100 placeholder:text-[#718096] dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#DC2626]"
               />
             </div>
           ) : (
@@ -124,10 +124,10 @@ export function DataTable<T>({
           onAction={onEmptyAction}
         />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-[#223257] bg-white dark:bg-[#101B35]">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-[#32242A] bg-white dark:bg-[#1B1417]">
           <table className="w-full border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-slate-200 dark:border-[#223257] bg-[#F6F8FC] dark:bg-[#0E172E]">
+              <tr className="border-b border-slate-200 dark:border-[#32242A] bg-[#FAF9F7] dark:bg-[#141013]">
                 {columns.map((col) => {
                   const isSorted = sortKey === col.key;
                   return (
@@ -145,16 +145,16 @@ export function DataTable<T>({
                           type="button"
                           onClick={() => handleSort(col.key)}
                           className={cn(
-                            'inline-flex items-center gap-1.5 hover:text-[#182238] dark:hover:text-slate-100 cursor-pointer focus-visible:outline-none focus-visible:underline',
+                            'inline-flex items-center gap-1.5 hover:text-[#1C1917] dark:hover:text-slate-100 cursor-pointer focus-visible:outline-none focus-visible:underline',
                             col.align === 'right' && 'flex-row-reverse',
                           )}
                         >
                           <span>{col.header}</span>
                           {isSorted ? (
                             sortDir === 'asc' ? (
-                              <ArrowUp className="h-3.5 w-3.5 text-[#4169F5]" />
+                              <ArrowUp className="h-3.5 w-3.5 text-[#DC2626]" />
                             ) : (
-                              <ArrowDown className="h-3.5 w-3.5 text-[#4169F5]" />
+                              <ArrowDown className="h-3.5 w-3.5 text-[#DC2626]" />
                             )
                           ) : (
                             <ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
@@ -168,13 +168,13 @@ export function DataTable<T>({
                 })}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200/80 dark:divide-[#223257]">
+            <tbody className="divide-y divide-slate-200/80 dark:divide-[#32242A]">
               {filteredData.map((row) => (
                 <tr
                   key={getRowKey(row)}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                   className={cn(
-                    'h-10 transition-colors duration-100 hover:bg-slate-50/90 dark:hover:bg-[#162342]/70',
+                    'h-10 transition-colors duration-100 hover:bg-slate-50/90 dark:hover:bg-[#251B20]/70',
                     onRowClick && 'cursor-pointer',
                   )}
                 >
@@ -182,7 +182,7 @@ export function DataTable<T>({
                     <td
                       key={col.key}
                       className={cn(
-                        'px-4 py-2.5 text-[#182238] dark:text-slate-200 align-middle',
+                        'px-4 py-2.5 text-[#1C1917] dark:text-slate-200 align-middle',
                         col.align === 'right' && 'text-right',
                         col.numeric && 'tabular-nums font-mono text-[13px]',
                       )}

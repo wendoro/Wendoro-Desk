@@ -3,6 +3,7 @@ import { cn } from '@/src/lib/utils';
 
 export interface SurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   padding?: 'none' | 'sm' | 'md' | 'lg';
+  interactive?: boolean;
 }
 
 const paddingMap = {
@@ -13,19 +14,21 @@ const paddingMap = {
 };
 
 /**
- * Single-elevation enterprise container with 1px hairline border.
- * Avoids nested cards-within-cards and thick left accent borders.
+ * Single-elevation modern enterprise container with subtle hairline border and crisp surface lift.
  */
 export function Surface({
   className,
   padding = 'md',
+  interactive = false,
   children,
   ...props
 }: SurfaceProps) {
   return (
     <div
       className={cn(
-        'rounded-xl bg-white border border-slate-200 dark:bg-[#101B35] dark:border-[#223257]',
+        'rounded-xl bg-white border border-stone-200/90 shadow-[0_1px_2px_rgba(24,18,20,0.04)] dark:bg-[#1B1417] dark:border-[#32242A] dark:shadow-none',
+        interactive &&
+          'transition-all duration-150 hover:border-[#DC2626]/60 hover:shadow-[0_6px_18px_rgba(220,38,38,0.08)] dark:hover:border-[#FACC15]/60',
         paddingMap[padding],
         className,
       )}

@@ -119,7 +119,7 @@ export function SchemaExplorerView() {
       sortable: true,
       sortValue: (r) => `${r.schema}.${r.tableName}`,
       render: (r) => (
-        <span className="font-mono text-xs font-medium text-[#4169F5]">
+        <span className="font-mono text-xs font-medium text-[#DC2626]">
           {r.schema}.{r.tableName}
         </span>
       ),
@@ -153,10 +153,10 @@ export function SchemaExplorerView() {
   return (
     <div className="space-y-8">
       <div>
-        <p className="text-xs font-medium text-[#8B5CF6] mb-1">
+        <p className="text-xs font-medium text-[#F59E0B] mb-1">
           PostgreSQL · Drizzle ORM · Migration 0000
         </p>
-        <h1 className="text-2xl font-bold tracking-tight text-[#182238] dark:text-slate-100">
+        <h1 className="text-2xl font-bold tracking-tight text-[#1C1917] dark:text-slate-100">
           Architecture & Core Database Schema
         </h1>
         <p className="mt-1.5 text-sm text-[#718096] dark:text-slate-400 max-w-3xl">
@@ -168,8 +168,8 @@ export function SchemaExplorerView() {
       {/* Domain Schema Namespaces */}
       <Surface>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100 flex items-center gap-2">
-            <Database className="h-4 w-4 text-[#4169F5]" />
+          <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 flex items-center gap-2">
+            <Database className="h-4 w-4 text-[#DC2626]" />
             PostgreSQL Schema Namespaces ({SCHEMA_NAMESPACES.length})
           </h2>
           <span className="text-xs text-[#718096] dark:text-slate-400">
@@ -181,10 +181,10 @@ export function SchemaExplorerView() {
           {SCHEMA_NAMESPACES.map((ns) => (
             <div
               key={ns.namespace}
-              className="p-3 rounded-lg border border-slate-200 dark:border-[#223257] bg-[#F6F8FC]/60 dark:bg-[#0E172E]"
+              className="p-3 rounded-lg border border-slate-200 dark:border-[#32242A] bg-[#FAF9F7]/60 dark:bg-[#141013]"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-semibold text-[#182238] dark:text-slate-100">
+                <span className="font-mono text-xs font-semibold text-[#1C1917] dark:text-slate-100">
                   {ns.namespace}.*
                 </span>
                 <span
@@ -208,10 +208,10 @@ export function SchemaExplorerView() {
       {/* Core Tables DataTable */}
       <section className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-[#182238] dark:text-slate-100">
+          <h2 className="text-base font-semibold text-[#1C1917] dark:text-slate-100">
             Phase 0 Defined Tables & RLS Policies
           </h2>
-          <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-200/70 dark:bg-[#162342] self-start">
+          <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-200/70 dark:bg-[#251B20] self-start">
             {['all', 'identity', 'organization', 'subscriptions', 'audit'].map((s) => (
               <button
                 key={s}
@@ -219,8 +219,8 @@ export function SchemaExplorerView() {
                 onClick={() => setSelectedSchema(s)}
                 className={`px-2.5 py-1 text-xs font-medium rounded-md cursor-pointer whitespace-nowrap ${
                   selectedSchema === s
-                    ? 'bg-white dark:bg-[#101B35] text-[#182238] dark:text-slate-100 shadow-xs'
-                    : 'text-[#718096] dark:text-slate-400 hover:text-[#182238] dark:hover:text-slate-100'
+                    ? 'bg-white dark:bg-[#1B1417] text-[#1C1917] dark:text-slate-100 shadow-xs'
+                    : 'text-[#718096] dark:text-slate-400 hover:text-[#1C1917] dark:hover:text-slate-100'
                 }`}
               >
                 {s === 'all' ? 'All Schemas' : s}
@@ -244,7 +244,7 @@ export function SchemaExplorerView() {
 
       {/* Transaction-Scoped RLS Snippet */}
       <Surface>
-        <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100 mb-2">
+        <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 mb-2">
           Transaction-Scoped RLS Pattern (Hyperdrive & PgBouncer Safe)
         </h2>
         <p className="text-xs text-[#718096] dark:text-slate-400 mb-3">
@@ -253,7 +253,7 @@ export function SchemaExplorerView() {
           Every database request runs inside a transaction that sets local session parameters
           automatically cleared on commit or rollback.
         </p>
-        <pre className="p-4 rounded-lg bg-[#101B35] text-slate-100 font-mono text-xs overflow-x-auto leading-relaxed">
+        <pre className="p-4 rounded-lg bg-[#1B1417] text-slate-100 font-mono text-xs overflow-x-auto leading-relaxed">
 {`await withTenantContext(db, { tenantId, companyId, userId }, async (tx) => {
   // Executes inside PostgreSQL transaction:
   //   SELECT set_config('app.current_tenant_id', $1, true);

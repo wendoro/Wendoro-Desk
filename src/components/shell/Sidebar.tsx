@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  BarChart3,
   BookOpen,
   Boxes,
   Building2,
@@ -19,6 +20,7 @@ import {
   Truck,
   Users,
   Wallet,
+  Workflow,
   X,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
@@ -64,9 +66,11 @@ export function Sidebar({
   const { activeCompany } = useTenant();
 
   const platformItems = [
+    { id: 'bi_analytics', label: 'BI & Analytics', icon: BarChart3 },
+    { id: 'workflow_studio', label: 'Workflow Studio', icon: Workflow },
     { id: 'admin', label: 'Modules & Settings', icon: SlidersHorizontal },
-    { id: 'setup', label: 'Setup Wizard', icon: CheckSquare },
-    { id: 'deploy', label: 'Deploy & Distribute', icon: Rocket },
+    { id: 'setup', label: 'Setup & License', icon: CheckSquare },
+    { id: 'deploy', label: 'Desktop & Android', icon: Rocket },
   ];
 
   const enabledBusinessModules = WENDORO_MODULES.filter(
@@ -81,11 +85,11 @@ export function Sidebar({
     const isCompact = collapsed && !isMobileDrawer;
 
     return (
-      <div className="flex flex-col h-full bg-[#101B35] text-slate-100 border-r border-[#1F2E54] select-none">
+      <div className="flex flex-col h-full bg-[#181214] text-stone-100 border-r border-[#32242A] select-none">
         {/* Brand Header */}
         <div
           className={cn(
-            'h-14 flex items-center border-b border-[#1F2E54] px-4 shrink-0',
+            'h-14 flex items-center border-b border-[#32242A] px-4 shrink-0',
             isCompact ? 'justify-center px-2' : 'justify-between',
           )}
         >
@@ -95,10 +99,11 @@ export function Sidebar({
               onNavigate('overview');
               if (isMobileDrawer) onCloseMobile();
             }}
-            className="flex items-center gap-2.5 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4169F5] rounded-md"
+            className="flex items-center gap-2.5 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FACC15] rounded-md"
           >
-            <div className="h-7 w-7 rounded-lg bg-[#4169F5] flex items-center justify-center font-display font-bold text-sm text-white shrink-0">
+            <div className="h-7 w-7 rounded-lg bg-[#DC2626] flex items-center justify-center font-display font-bold text-sm text-white shrink-0 relative">
               W
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#FACC15]" />
             </div>
             {!isCompact && (
               <span className="font-display text-base font-bold tracking-tight text-white whitespace-nowrap">
@@ -112,7 +117,7 @@ export function Sidebar({
               type="button"
               onClick={onCloseMobile}
               aria-label="Close navigation menu"
-              className="p-1.5 rounded-md text-slate-300 hover:text-white hover:bg-[#1A294D] cursor-pointer"
+              className="p-1.5 rounded-md text-stone-300 hover:text-white hover:bg-[#2A1E22] cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
@@ -121,7 +126,7 @@ export function Sidebar({
               type="button"
               onClick={onToggleCollapse}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="hidden lg:inline-flex p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[#1A294D] cursor-pointer"
+              className="hidden lg:inline-flex p-1.5 rounded-md text-stone-400 hover:text-[#FACC15] hover:bg-[#2A1E22] cursor-pointer"
             >
               {collapsed ? (
                 <ChevronRight className="h-4 w-4" />
@@ -140,7 +145,7 @@ export function Sidebar({
           {/* Operations & Business Apps */}
           <div>
             {!isCompact && (
-              <div className="px-2.5 mb-2 text-[11px] font-medium text-slate-400">
+              <div className="px-2.5 mb-2 text-[11px] font-medium text-stone-400">
                 Operations
               </div>
             )}
@@ -157,8 +162,8 @@ export function Sidebar({
                     'w-full flex items-center gap-3 px-2.5 h-9 rounded-lg text-[13px] font-medium transition-colors cursor-pointer',
                     isCompact && 'justify-center px-0',
                     activeRoute === 'overview'
-                      ? 'bg-[#4169F5] text-white'
-                      : 'text-slate-300 hover:bg-[#1A294D] hover:text-white',
+                      ? 'bg-[#DC2626] text-white shadow-xs'
+                      : 'text-stone-300 hover:bg-[#2A1E22] hover:text-[#FACC15]',
                   )}
                 >
                   <LayoutDashboard className="h-4 w-4 shrink-0" />
@@ -185,8 +190,8 @@ export function Sidebar({
                         'w-full flex items-center gap-3 px-2.5 h-9 rounded-lg text-[13px] font-medium transition-colors cursor-pointer',
                         isCompact && 'justify-center px-0',
                         isActive
-                          ? 'bg-[#4169F5] text-white'
-                          : 'text-slate-300 hover:bg-[#1A294D] hover:text-white',
+                          ? 'bg-[#DC2626] text-white shadow-xs'
+                          : 'text-stone-300 hover:bg-[#2A1E22] hover:text-[#FACC15]',
                       )}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
@@ -204,7 +209,7 @@ export function Sidebar({
           {enabledIndustryModules.length > 0 && (
             <div>
               {!isCompact && (
-                <div className="px-2.5 mb-2 text-[11px] font-medium text-slate-400">
+                <div className="px-2.5 mb-2 text-[11px] font-medium text-stone-400">
                   Industry Operations ({enabledIndustryModules.length})
                 </div>
               )}
@@ -226,8 +231,8 @@ export function Sidebar({
                           'w-full flex items-center gap-3 px-2.5 h-9 rounded-lg text-[13px] font-medium transition-colors cursor-pointer',
                           isCompact && 'justify-center px-0',
                           isActive
-                            ? 'bg-[#8B5CF6] text-white'
-                            : 'text-slate-300 hover:bg-[#1A294D] hover:text-white',
+                            ? 'bg-[#FACC15] text-[#1C1917] font-semibold'
+                            : 'text-stone-300 hover:bg-[#2A1E22] hover:text-[#FACC15]',
                         )}
                       >
                         <Icon className="h-4 w-4 shrink-0" />
@@ -245,8 +250,8 @@ export function Sidebar({
           {/* Workspace & Platform */}
           <div>
             {!isCompact && (
-              <div className="px-2.5 mb-2 text-[11px] font-medium text-slate-400">
-                Workspace & Platform
+              <div className="px-2.5 mb-2 text-[11px] font-medium text-stone-400">
+                Software & License
               </div>
             )}
             <ul className="space-y-1">
@@ -269,8 +274,8 @@ export function Sidebar({
                         'w-full flex items-center gap-3 px-2.5 h-9 rounded-lg text-[13px] font-medium transition-colors cursor-pointer',
                         isCompact && 'justify-center px-0',
                         isActive
-                          ? 'bg-[#4169F5] text-white'
-                          : 'text-slate-300 hover:bg-[#1A294D] hover:text-white',
+                          ? 'bg-[#DC2626] text-white shadow-xs'
+                          : 'text-stone-300 hover:bg-[#2A1E22] hover:text-[#FACC15]',
                       )}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
@@ -287,11 +292,11 @@ export function Sidebar({
 
         {/* Active Context Footer */}
         {!isCompact && (
-          <div className="p-3 border-t border-[#1F2E54] text-xs text-slate-400 space-y-0.5">
-            <div className="font-medium text-slate-200 truncate">
+          <div className="p-3 border-t border-[#32242A] text-xs text-stone-400 space-y-0.5">
+            <div className="font-medium text-stone-100 truncate">
               {activeCompany.companyName}
             </div>
-            <div className="truncate">
+            <div className="truncate text-[#FACC15]">
               {activeCompany.roleName} · {activeCompany.baseCurrency}
             </div>
           </div>
@@ -321,7 +326,7 @@ export function Sidebar({
           aria-label="Mobile Navigation"
         >
           <div
-            className="fixed inset-0 bg-[#101B35]/60"
+            className="fixed inset-0 bg-[#181214]/70"
             onClick={onCloseMobile}
             aria-hidden="true"
           />

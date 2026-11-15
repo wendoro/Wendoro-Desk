@@ -11,3 +11,4 @@ coverage/
 bun.lock
 bun.lockb
 firebase-applet-config.json
+.data/

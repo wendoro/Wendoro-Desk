@@ -83,7 +83,7 @@ export function MilestonePlanView() {
           <p className="text-xs font-medium text-[#16B8A6] mb-1">
             Foundation Sign-Off & Phase 1 Gate
           </p>
-          <h1 className="text-2xl font-bold tracking-tight text-[#182238] dark:text-slate-100">
+          <h1 className="text-2xl font-bold tracking-tight text-[#1C1917] dark:text-slate-100">
             Milestone 1 Plan & Acceptance Criteria
           </h1>
           <p className="mt-1.5 text-sm text-[#718096] dark:text-slate-400 max-w-2xl">
@@ -92,7 +92,7 @@ export function MilestonePlanView() {
           </p>
         </div>
 
-        <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-200/70 dark:bg-[#162342] self-start">
+        <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-200/70 dark:bg-[#251B20] self-start">
           {([
             { id: 'all', label: 'All Gates' },
             { id: 'phase0', label: 'Phase 0 Ready' },
@@ -104,8 +104,8 @@ export function MilestonePlanView() {
               onClick={() => setFilter(tab.id)}
               className={`px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer whitespace-nowrap ${
                 filter === tab.id
-                  ? 'bg-white dark:bg-[#101B35] text-[#182238] dark:text-slate-100 shadow-xs'
-                  : 'text-[#718096] dark:text-slate-400 hover:text-[#182238] dark:hover:text-slate-100'
+                  ? 'bg-white dark:bg-[#1B1417] text-[#1C1917] dark:text-slate-100 shadow-xs'
+                  : 'text-[#718096] dark:text-slate-400 hover:text-[#1C1917] dark:hover:text-slate-100'
               }`}
             >
               {tab.label}
@@ -115,7 +115,7 @@ export function MilestonePlanView() {
       </div>
 
       <Surface padding="none">
-        <div className="divide-y divide-slate-200 dark:divide-[#223257]">
+        <div className="divide-y divide-slate-200 dark:divide-[#32242A]">
           {items.map((item) => (
             <div
               key={item.id}
@@ -133,7 +133,7 @@ export function MilestonePlanView() {
                     <span aria-hidden="true">·</span>
                     <span>{item.phase === 'phase0' ? 'Phase 0 Foundation' : 'Phase 1 Milestone'}</span>
                   </div>
-                  <h3 className="mt-0.5 text-sm font-semibold text-[#182238] dark:text-slate-100">
+                  <h3 className="mt-0.5 text-sm font-semibold text-[#1C1917] dark:text-slate-100">
                     {item.title}
                   </h3>
                   <p className="mt-1 text-xs text-[#718096] dark:text-slate-400">

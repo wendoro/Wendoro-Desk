@@ -39,12 +39,12 @@ export function ModuleRoadmapView({
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#718096] hover:text-[#182238] dark:text-slate-400 dark:hover:text-slate-100 mb-2 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#718096] hover:text-[#1C1917] dark:text-slate-400 dark:hover:text-slate-100 mb-2 cursor-pointer"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to Executive Shell
           </button>
-          <h1 className="text-2xl font-bold tracking-tight text-[#182238] dark:text-slate-100">
+          <h1 className="text-2xl font-bold tracking-tight text-[#1C1917] dark:text-slate-100">
             {mod.name}
           </h1>
           <p className="mt-1 text-xs text-[#718096] dark:text-slate-400 font-mono">
@@ -68,9 +68,9 @@ export function ModuleRoadmapView({
 
       <Surface>
         <div className="flex items-start gap-3">
-          <Layers className="h-5 w-5 text-[#4169F5] shrink-0 mt-0.5" />
+          <Layers className="h-5 w-5 text-[#DC2626] shrink-0 mt-0.5" />
           <div className="space-y-3">
-            <h2 className="text-sm font-semibold text-[#182238] dark:text-slate-100">
+            <h2 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100">
               Module Specification & Implementation Boundary
             </h2>
             <p className="text-sm text-[#718096] dark:text-slate-400 leading-relaxed">
@@ -88,14 +88,14 @@ export function ModuleRoadmapView({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Surface>
-          <h3 className="text-sm font-semibold text-[#182238] dark:text-slate-100 mb-3">
+          <h3 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 mb-3">
             Planned Capabilities
           </h3>
-          <ul className="space-y-2 text-xs text-[#182238] dark:text-slate-200">
+          <ul className="space-y-2 text-xs text-[#1C1917] dark:text-slate-200">
             {mod.capabilities.map((cap) => (
               <li
                 key={cap}
-                className="py-1.5 border-b last:border-b-0 border-slate-200/70 dark:border-[#223257]"
+                className="py-1.5 border-b last:border-b-0 border-slate-200/70 dark:border-[#32242A]"
               >
                 {cap}
               </li>
@@ -104,7 +104,7 @@ export function ModuleRoadmapView({
         </Surface>
 
         <Surface>
-          <h3 className="text-sm font-semibold text-[#182238] dark:text-slate-100 mb-3">
+          <h3 className="text-sm font-semibold text-[#1C1917] dark:text-slate-100 mb-3">
             Core Platform Dependencies
           </h3>
           {mod.dependencies.length === 0 ? (
@@ -116,7 +116,7 @@ export function ModuleRoadmapView({
               {mod.dependencies.map((dep) => (
                 <li
                   key={dep}
-                  className="py-1.5 border-b last:border-b-0 border-slate-200/70 dark:border-[#223257] font-mono text-[#4169F5]"
+                  className="py-1.5 border-b last:border-b-0 border-slate-200/70 dark:border-[#32242A] font-mono text-[#DC2626]"
                 >
                   {dep}
                 </li>

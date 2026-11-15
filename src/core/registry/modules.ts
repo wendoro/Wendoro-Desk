@@ -56,6 +56,28 @@ export const WENDORO_MODULES: ModuleDefinition[] = [
     capabilities: ['Provider Abstraction', 'Permission-Aware Tools', 'Approval Workflows', 'Token & Cost Ledger'],
     dependencies: ['core_rbac'],
   },
+  {
+    slug: 'bi_analytics',
+    name: 'BI & Analytics',
+    layer: 'core',
+    schemaNamespace: 'analytics',
+    targetPhase: 'Platform Core',
+    description: 'Real-time executive business intelligence, margin analytics, customer revenue rankings, pipeline funnels, and saved CSV reports.',
+    capabilities: ['Live Revenue vs COGS', 'Customer & SKU Breakdown', 'Pipeline Funnel', 'Saved BI Reports'],
+    dependencies: ['core_identity'],
+    alwaysActive: true,
+  },
+  {
+    slug: 'workflow_studio',
+    name: 'Workflow Studio',
+    layer: 'core',
+    schemaNamespace: 'workflow',
+    targetPhase: 'Platform Core',
+    description: 'Dynamic procurement & expense approval thresholds, custom entity field schema builder, and company audit logs.',
+    capabilities: ['Approval Threshold Rules', 'Custom Field Schema Builder', 'Audit Log Explorer'],
+    dependencies: ['core_rbac'],
+    alwaysActive: true,
+  },
 
   // Layer B — Business Applications (Independently Activatable)
   {

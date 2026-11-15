@@ -3,17 +3,18 @@
 
 @layer base {
   :root {
-    --wendoro-navy: #101B35;
-    --wendoro-blue: #4169F5;
-    --wendoro-violet: #8B5CF6;
+    --wendoro-obsidian: #181214;
+    --wendoro-red: #DC2626;
+    --wendoro-yellow: #FACC15;
+    --wendoro-amber: #F59E0B;
     --wendoro-teal: #16B8A6;
 
-    --wendoro-canvas: #F6F8FC;
+    --wendoro-canvas: #FAF9F7;
     --wendoro-surface: #FFFFFF;
-    --wendoro-surface-subtle: #EFF3FA;
-    --wendoro-border: #E2E8F0;
-    --wendoro-text: #182238;
-    --wendoro-muted: #718096;
+    --wendoro-surface-subtle: #F5F2EE;
+    --wendoro-border: #E7E2DC;
+    --wendoro-text: #1C1917;
+    --wendoro-muted: #57534E;
 
     --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
@@ -21,12 +22,12 @@
   }
 
   .dark {
-    --wendoro-canvas: #0B1224;
-    --wendoro-surface: #101B35;
-    --wendoro-surface-subtle: #162342;
-    --wendoro-border: #223257;
-    --wendoro-text: #F1F5F9;
-    --wendoro-muted: #94A3B8;
+    --wendoro-canvas: #141013;
+    --wendoro-surface: #1B1417;
+    --wendoro-surface-subtle: #251B20;
+    --wendoro-border: #32242A;
+    --wendoro-text: #F5F5F4;
+    --wendoro-muted: #A8A29E;
   }
 
   html {
@@ -46,6 +47,19 @@
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+.wendoro-canvas-bg {
+  background-color: var(--wendoro-canvas);
+  background-image:
+    radial-gradient(ellipse 75% 45% at 15% -10%, rgba(220, 38, 38, 0.06), transparent),
+    radial-gradient(ellipse 65% 40% at 85% -10%, rgba(250, 204, 21, 0.08), transparent);
+}
+
+.dark .wendoro-canvas-bg {
+  background-image:
+    radial-gradient(ellipse 75% 45% at 15% -10%, rgba(220, 38, 38, 0.14), transparent),
+    radial-gradient(ellipse 65% 40% at 85% -10%, rgba(250, 204, 21, 0.08), transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

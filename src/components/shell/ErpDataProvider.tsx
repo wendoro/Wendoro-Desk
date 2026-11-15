@@ -1,39 +1,69 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
+  ApprovalRule,
+  AttendanceLog,
   AuditLogRecord,
+  BankTransaction,
+  BiSavedReport,
+  BomDefinition,
+  BudgetAllocation,
+  Candidate,
   CatalogueItem,
   ChartAccount,
+  CreditNote,
+  CrmActivity,
   CrmContact,
   CrmStage,
+  CustomFieldDefinition,
   DocumentRecord,
   EmployeeRecord,
   ErpDatabaseState,
+  ExpenseClaim,
   FiscalPeriod,
+  FixedAsset,
   IndustryOperationRecord,
   InventoryLot,
+  JobOpening,
   JournalEntry,
+  KbArticle,
+  LeaveRequest,
   LedgerEntry,
+  MaintenanceSchedule,
   MarketingCampaign,
   OrderLineItem,
   PaymentAllocation,
   PayrollRun,
+  PerformanceGoal,
+  PosShift,
   ProjectTask,
   ProjectTaskStatus,
   PurchaseOrder,
+  PurchaseRequisition,
   PurchaseStatus,
+  QualityInspection,
   SalesOrder,
   SalesStatus,
+  ShipmentRecord,
   StockMovement,
   StockReservation,
+  StockTransfer,
   SupportTicket,
   TicketStatus,
+  TimesheetEntry,
+  Warehouse,
+  WorkOrder,
 } from '@/src/core/store/erpTypes';
 import {
+  AgingReport,
   DraftJournalLine,
+  FinancialStatementsReport,
   TrialBalanceRow,
+  computeAgingReport,
+  computeFinancialStatements,
   computeTrialBalance,
   createUuid,
   ensureCompanyAccounts,
+  nextSequenceNumber,
   nowIso,
   postJournalEntry,
   reverseJournalEntry,
@@ -56,6 +86,17 @@ import {
   txUpdateSalesStatus,
 } from '@/src/core/engine/erpTransactions';
 import {
+  txApproveExpenseClaim,
+  txClosePosShift,
+  txCompleteWorkOrder,
+  txConvertRequisitionToPo,
+  txCreateCreditNote,
+  txHireCandidateToEmployee,
+  txRegisterFixedAsset,
+  txRunMonthlyDepreciation,
+  txTransferStockBetweenWarehouses,
+} from '@/src/core/engine/erpModuleTransactions';
+import {
   PersistenceAdapterMode,
   defaultDevStorageAdapter,
 } from '@/src/core/engine/storageAdapter';
@@ -65,7 +106,13 @@ export interface ErpCompanyScopedData {
   catalogue: CatalogueItem[];
   contacts: CrmContact[];
   salesOrders: SalesOrder[];
+  creditNotes: CreditNote[];
+  posShifts: PosShift[];
   purchaseOrders: PurchaseOrder[];
+  purchaseRequisitions: PurchaseRequisition[];
+  warehouses: Warehouse[];
+  stockTransfers: StockTransfer[];
+  shipments: ShipmentRecord[];
   stockMovements: StockMovement[];
   inventoryLots: InventoryLot[];
   stockReservations: StockReservation[];
@@ -74,12 +121,30 @@ export interface ErpCompanyScopedData {
   journals: JournalEntry[];
   paymentAllocations: PaymentAllocation[];
   ledgerEntries: LedgerEntry[];
+  fixedAssets: FixedAsset[];
+  budgets: BudgetAllocation[];
+  expenseClaims: ExpenseClaim[];
+  bankTransactions: BankTransaction[];
+  boms: BomDefinition[];
+  workOrders: WorkOrder[];
+  qualityInspections: QualityInspection[];
+  maintenanceSchedules: MaintenanceSchedule[];
   employees: EmployeeRecord[];
   payrollRuns: PayrollRun[];
+  leaveRequests: LeaveRequest[];
+  attendanceLogs: AttendanceLog[];
+  jobOpenings: JobOpening[];
+  candidates: Candidate[];
+  performanceGoals: PerformanceGoal[];
   projectTasks: ProjectTask[];
+  timesheets: TimesheetEntry[];
   supportTickets: SupportTicket[];
+  kbArticles: KbArticle[];
   documents: DocumentRecord[];
   campaigns: MarketingCampaign[];
+  approvalRules: ApprovalRule[];
+  customFields: CustomFieldDefinition[];
+  biReports: BiSavedReport[];
   industryRecords: IndustryOperationRecord[];
   auditLogs: AuditLogRecord[];
 }
@@ -93,6 +158,8 @@ interface ErpDataContextValue {
     totalCredits: number;
     isBalanced: boolean;
   };
+  financialStatements: FinancialStatementsReport;
+  agingReport: AgingReport;
   metrics: {
     totalRevenue: number;
     totalExpenses: number;
@@ -114,6 +181,8 @@ interface ErpDataContextValue {
   deleteCatalogueItem: (id: string) => void;
   addContact: (contact: Omit<CrmContact, 'id' | 'companyId' | 'createdAt'>) => CrmContact;
   updateContactStage: (id: string, stage: CrmStage) => void;
+  addContactActivity: (contactId: string, activity: Omit<CrmActivity, 'id'>) => void;
+  updateContactScore: (contactId: string, leadScore: number) => void;
   deleteContact: (id: string) => void;
   createSalesOrder: (input: {
     documentType: 'invoice' | 'quote';
@@ -125,6 +194,13 @@ interface ErpDataContextValue {
     lines: Omit<OrderLineItem, 'id' | 'lineTotal'>[];
     notes: string;
     isImmediatePosSale?: boolean;
+    paymentMethod?: PaymentAllocation['method'];
+    salesperson?: string;
+    commissionRate?: number;
+    isRecurring?: boolean;
+    recurringInterval?: 'monthly' | 'quarterly' | 'annual';
+    isDropShip?: boolean;
+    channel?: 'direct' | 'pos' | 'ecommerce';
   }) => SalesOrder;
   updateSalesStatus: (id: string, status: SalesStatus) => void;
   dispatchSalesOrder: (orderId: string, dispatchDate?: string) => SalesOrder;
@@ -135,7 +211,15 @@ interface ErpDataContextValue {
     method?: PaymentAllocation['method'];
     reference?: string;
   }) => PaymentAllocation;
+  createCreditNote: (input: {
+    salesOrderId: string;
+    issueDate: string;
+    reason: string;
+    restoreStock: boolean;
+  }) => CreditNote;
   deleteSalesOrder: (id: string) => void;
+  openPosShift: (input: { registerName: string; cashierName: string; openingCash: number }) => PosShift;
+  closePosShift: (shiftId: string, countedCash: number) => PosShift;
   createPurchaseOrder: (input: {
     vendorId?: string;
     vendorName: string;
@@ -144,7 +228,9 @@ interface ErpDataContextValue {
     status: PurchaseStatus;
     lines: Omit<OrderLineItem, 'id' | 'lineTotal'>[];
     notes: string;
+    approvedBy?: string;
   }) => PurchaseOrder;
+  approvePurchaseOrder: (orderId: string, approverName: string) => void;
   receivePurchaseOrder: (input: {
     orderId: string;
     receiptDate?: string;
@@ -160,6 +246,23 @@ interface ErpDataContextValue {
     reference?: string;
   }) => PaymentAllocation;
   deletePurchaseOrder: (id: string) => void;
+  addPurchaseRequisition: (
+    req: Omit<PurchaseRequisition, 'id' | 'companyId' | 'reqNumber' | 'status' | 'createdAt'>,
+  ) => PurchaseRequisition;
+  updateRequisitionStatus: (reqId: string, status: PurchaseRequisition['status']) => void;
+  convertRequisitionToPo: (reqId: string, vendorName: string, expectedDate: string) => PurchaseOrder;
+  addWarehouse: (wh: Omit<Warehouse, 'id' | 'companyId' | 'createdAt'>) => Warehouse;
+  transferStock: (input: {
+    itemId: string;
+    fromWarehouse: string;
+    toWarehouse: string;
+    quantity: number;
+    notes: string;
+  }) => StockTransfer;
+  addShipment: (
+    shipment: Omit<ShipmentRecord, 'id' | 'companyId' | 'trackingNumber' | 'createdAt'>,
+  ) => ShipmentRecord;
+  updateShipmentStatus: (id: string, status: ShipmentRecord['status']) => void;
   adjustStock: (input: {
     itemId: string;
     direction: 'in' | 'out' | 'adjustment';
@@ -177,6 +280,39 @@ interface ErpDataContextValue {
   }) => JournalEntry;
   reverseJournal: (journalId: string, reason: string) => JournalEntry;
   toggleFiscalPeriod: (periodCode: string, status: 'open' | 'closed') => void;
+  registerFixedAsset: (input: {
+    name: string;
+    category: string;
+    purchaseDate: string;
+    purchaseCost: number;
+    salvageValue: number;
+    usefulLifeMonths: number;
+    postAcquisitionJournal: boolean;
+    paymentAccountCode?: '1000' | '2100';
+  }) => FixedAsset;
+  runMonthlyDepreciation: (periodKey: string, postingDate: string) => { totalDepreciation: number; assetsCount: number };
+  addBudget: (budget: Omit<BudgetAllocation, 'id' | 'companyId' | 'createdAt'>) => BudgetAllocation;
+  deleteBudget: (id: string) => void;
+  addExpenseClaim: (
+    claim: Omit<ExpenseClaim, 'id' | 'companyId' | 'claimNumber' | 'status' | 'createdAt'>,
+  ) => ExpenseClaim;
+  approveExpenseClaim: (claimId: string, payImmediately: boolean, postingDate: string) => ExpenseClaim;
+  addBankTransaction: (
+    tx: Omit<BankTransaction, 'id' | 'companyId' | 'status' | 'createdAt'>,
+  ) => BankTransaction;
+  reconcileBankTransaction: (txId: string, journalId: string) => void;
+  addBom: (bom: Omit<BomDefinition, 'id' | 'companyId' | 'bomCode' | 'createdAt'>) => BomDefinition;
+  createWorkOrder: (
+    wo: Omit<WorkOrder, 'id' | 'companyId' | 'woNumber' | 'completedQty' | 'status' | 'totalMaterialCost' | 'totalConversionCost' | 'createdAt'>,
+  ) => WorkOrder;
+  completeWorkOrder: (workOrderId: string, completionDate: string) => WorkOrder;
+  addQualityInspection: (
+    qi: Omit<QualityInspection, 'id' | 'companyId' | 'inspectionNumber' | 'createdAt'>,
+  ) => QualityInspection;
+  addMaintenanceSchedule: (
+    ms: Omit<MaintenanceSchedule, 'id' | 'companyId' | 'createdAt'>,
+  ) => MaintenanceSchedule;
+  completeMaintenanceSchedule: (id: string) => void;
   addEmployee: (
     emp: Omit<EmployeeRecord, 'id' | 'companyId' | 'branchId' | 'createdAt'>,
   ) => EmployeeRecord;
@@ -187,20 +323,60 @@ interface ErpDataContextValue {
     paymentDate?: string;
     disburseCashImmediately?: boolean;
   }) => PayrollRun;
+  addLeaveRequest: (
+    req: Omit<LeaveRequest, 'id' | 'companyId' | 'status' | 'createdAt'>,
+  ) => LeaveRequest;
+  updateLeaveStatus: (id: string, status: LeaveRequest['status']) => void;
+  addAttendanceLog: (
+    log: Omit<AttendanceLog, 'id' | 'companyId' | 'createdAt'>,
+  ) => AttendanceLog;
+  addJobOpening: (
+    job: Omit<JobOpening, 'id' | 'companyId' | 'createdAt'>,
+  ) => JobOpening;
+  addCandidate: (
+    cand: Omit<Candidate, 'id' | 'companyId' | 'createdAt'>,
+  ) => Candidate;
+  updateCandidateStage: (id: string, stage: Candidate['stage']) => void;
+  hireCandidate: (candidateId: string, joinedDate: string, monthlySalary: number) => EmployeeRecord;
+  addPerformanceGoal: (
+    goal: Omit<PerformanceGoal, 'id' | 'companyId' | 'createdAt'>,
+  ) => PerformanceGoal;
+  updatePerformanceProgress: (id: string, progressPct: number) => void;
   addProjectTask: (task: Omit<ProjectTask, 'id' | 'companyId' | 'createdAt'>) => ProjectTask;
   updateProjectTaskStatus: (id: string, status: ProjectTaskStatus) => void;
   deleteProjectTask: (id: string) => void;
+  addTimesheet: (
+    ts: Omit<TimesheetEntry, 'id' | 'companyId' | 'billed' | 'createdAt'>,
+  ) => TimesheetEntry;
+  markTimesheetBilled: (id: string) => void;
   addSupportTicket: (
     ticket: Omit<SupportTicket, 'id' | 'companyId' | 'ticketNumber' | 'createdAt'>,
   ) => SupportTicket;
   updateSupportTicketStatus: (id: string, status: TicketStatus) => void;
   deleteSupportTicket: (id: string) => void;
+  addKbArticle: (
+    article: Omit<KbArticle, 'id' | 'companyId' | 'createdAt'>,
+  ) => KbArticle;
   addDocument: (doc: Omit<DocumentRecord, 'id' | 'companyId' | 'createdAt'>) => DocumentRecord;
+  signDocument: (id: string, signerName: string) => void;
+  bumpDocumentVersion: (id: string) => void;
   deleteDocument: (id: string) => void;
   addCampaign: (
     campaign: Omit<MarketingCampaign, 'id' | 'companyId' | 'createdAt'>,
   ) => MarketingCampaign;
   deleteCampaign: (id: string) => void;
+  addApprovalRule: (
+    rule: Omit<ApprovalRule, 'id' | 'companyId' | 'createdAt'>,
+  ) => ApprovalRule;
+  toggleApprovalRule: (id: string) => void;
+  addCustomField: (
+    field: Omit<CustomFieldDefinition, 'id' | 'companyId' | 'createdAt'>,
+  ) => CustomFieldDefinition;
+  deleteCustomField: (id: string) => void;
+  addBiReport: (
+    report: Omit<BiSavedReport, 'id' | 'companyId' | 'createdAt'>,
+  ) => BiSavedReport;
+  deleteBiReport: (id: string) => void;
   addIndustryRecord: (
     rec: Omit<IndustryOperationRecord, 'id' | 'companyId' | 'createdAt'>,
   ) => IndustryOperationRecord;
@@ -243,49 +419,65 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     [companyId, activeBranchId, principal.userId, activeCompany.roleSlug],
   );
 
-  const data: ErpCompanyScopedData = useMemo(
-    () => ({
-      catalogue: state.catalogue.filter((r) => r.companyId === companyId),
-      contacts: state.contacts.filter((r) => r.companyId === companyId),
-      salesOrders: state.salesOrders.filter((r) => r.companyId === companyId),
-      purchaseOrders: state.purchaseOrders.filter((r) => r.companyId === companyId),
-      stockMovements: state.stockMovements.filter((r) => r.companyId === companyId),
-      inventoryLots: state.inventoryLots.filter((r) => r.companyId === companyId),
-      stockReservations: state.stockReservations.filter((r) => r.companyId === companyId),
-      accounts: state.accounts.filter((r) => r.companyId === companyId),
-      fiscalPeriods: state.fiscalPeriods.filter((r) => r.companyId === companyId),
-      journals: state.journals.filter((r) => r.companyId === companyId),
-      paymentAllocations: state.paymentAllocations.filter((r) => r.companyId === companyId),
-      ledgerEntries: state.ledgerEntries.filter((r) => r.companyId === companyId),
-      employees: state.employees.filter((r) => r.companyId === companyId),
-      payrollRuns: state.payrollRuns.filter((r) => r.companyId === companyId),
-      projectTasks: state.projectTasks.filter((r) => r.companyId === companyId),
-      supportTickets: state.supportTickets.filter((r) => r.companyId === companyId),
-      documents: state.documents.filter((r) => r.companyId === companyId),
-      campaigns: state.campaigns.filter((r) => r.companyId === companyId),
-      industryRecords: state.industryRecords.filter((r) => r.companyId === companyId),
-      auditLogs: state.auditLogs.filter((r) => r.companyId === companyId),
-    }),
-    [state, companyId],
-  );
+  const data: ErpCompanyScopedData = useMemo(() => {
+    const byCo = <T extends { companyId: string }>(arr: T[]) =>
+      arr.filter((r) => r.companyId === companyId);
+    return {
+      catalogue: byCo(state.catalogue),
+      contacts: byCo(state.contacts),
+      salesOrders: byCo(state.salesOrders),
+      creditNotes: byCo(state.creditNotes),
+      posShifts: byCo(state.posShifts),
+      purchaseOrders: byCo(state.purchaseOrders),
+      purchaseRequisitions: byCo(state.purchaseRequisitions),
+      warehouses: byCo(state.warehouses),
+      stockTransfers: byCo(state.stockTransfers),
+      shipments: byCo(state.shipments),
+      stockMovements: byCo(state.stockMovements),
+      inventoryLots: byCo(state.inventoryLots),
+      stockReservations: byCo(state.stockReservations),
+      accounts: byCo(state.accounts),
+      fiscalPeriods: byCo(state.fiscalPeriods),
+      journals: byCo(state.journals),
+      paymentAllocations: byCo(state.paymentAllocations),
+      ledgerEntries: byCo(state.ledgerEntries),
+      fixedAssets: byCo(state.fixedAssets),
+      budgets: byCo(state.budgets),
+      expenseClaims: byCo(state.expenseClaims),
+      bankTransactions: byCo(state.bankTransactions),
+      boms: byCo(state.boms),
+      workOrders: byCo(state.workOrders),
+      qualityInspections: byCo(state.qualityInspections),
+      maintenanceSchedules: byCo(state.maintenanceSchedules),
+      employees: byCo(state.employees),
+      payrollRuns: byCo(state.payrollRuns),
+      leaveRequests: byCo(state.leaveRequests),
+      attendanceLogs: byCo(state.attendanceLogs),
+      jobOpenings: byCo(state.jobOpenings),
+      candidates: byCo(state.candidates),
+      performanceGoals: byCo(state.performanceGoals),
+      projectTasks: byCo(state.projectTasks),
+      timesheets: byCo(state.timesheets),
+      supportTickets: byCo(state.supportTickets),
+      kbArticles: byCo(state.kbArticles),
+      documents: byCo(state.documents),
+      campaigns: byCo(state.campaigns),
+      approvalRules: byCo(state.approvalRules),
+      customFields: byCo(state.customFields),
+      biReports: byCo(state.biReports),
+      industryRecords: byCo(state.industryRecords),
+      auditLogs: byCo(state.auditLogs),
+    };
+  }, [state, companyId]);
 
-  const trialBalance = useMemo(
-    () => computeTrialBalance(state, companyId),
-    [state, companyId],
-  );
+  const trialBalance = useMemo(() => computeTrialBalance(state, companyId), [state, companyId]);
+  const financialStatements = useMemo(() => computeFinancialStatements(state, companyId), [state, companyId]);
+  const agingReport = useMemo(() => computeAgingReport(state, companyId), [state, companyId]);
 
   const metrics = useMemo(() => {
     const byCode = new Map(trialBalance.rows.map((r) => [r.code, r.netBalance]));
-    const totalRevenue = roundMoney(
-      trialBalance.rows
-        .filter((r) => r.category === 'revenue')
-        .reduce((s, r) => s + r.netBalance, 0),
-    );
-    const totalExpenses = roundMoney(
-      trialBalance.rows
-        .filter((r) => r.category === 'expense')
-        .reduce((s, r) => s + r.netBalance, 0),
-    );
+    const totalRevenue = financialStatements.totalRevenue;
+    const totalExpenses = financialStatements.totalExpenses;
     const openReceivables = roundMoney(Math.max(0, byCode.get('1200') ?? 0));
     const openPayables = roundMoney(Math.max(0, byCode.get('2100') ?? 0));
     const inventoryAssetValue = roundMoney(Math.max(0, byCode.get('1300') ?? 0));
@@ -304,7 +496,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     return {
       totalRevenue,
       totalExpenses,
-      netIncome: roundMoney(totalRevenue - totalExpenses),
+      netIncome: financialStatements.netIncome,
       openReceivables,
       openPayables,
       inventoryAssetValue,
@@ -313,7 +505,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       openTasksCount,
       openTicketsCount,
     };
-  }, [trialBalance, data]);
+  }, [trialBalance, financialStatements, data]);
 
   const addCatalogueItem: ErpDataContextValue['addCatalogueItem'] = (input) => {
     const res = txAddCatalogueItem(state, scope, input);
@@ -333,6 +525,9 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       ...input,
       id: createUuid(),
       companyId,
+      leadScore: input.leadScore ?? 50,
+      loyaltyPoints: input.loyaltyPoints ?? 0,
+      activities: input.activities ?? [],
       createdAt: nowIso(),
     };
     setState((prev) => ({
@@ -347,6 +542,29 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       ...prev,
       contacts: prev.contacts.map((c) =>
         c.id === id && c.companyId === companyId ? { ...c, stage } : c,
+      ),
+    }));
+  };
+
+  const addContactActivity = (contactId: string, activity: Omit<CrmActivity, 'id'>) => {
+    const entry: CrmActivity = { ...activity, id: createUuid() };
+    setState((prev) => ({
+      ...prev,
+      contacts: prev.contacts.map((c) =>
+        c.id === contactId && c.companyId === companyId
+          ? { ...c, activities: [entry, ...(c.activities ?? [])] }
+          : c,
+      ),
+    }));
+  };
+
+  const updateContactScore = (contactId: string, leadScore: number) => {
+    setState((prev) => ({
+      ...prev,
+      contacts: prev.contacts.map((c) =>
+        c.id === contactId && c.companyId === companyId
+          ? { ...c, leadScore: Math.max(0, Math.min(100, leadScore)) }
+          : c,
       ),
     }));
   };
@@ -374,10 +592,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     setState(next);
   };
 
-  const dispatchSalesOrder: ErpDataContextValue['dispatchSalesOrder'] = (
-    orderId,
-    dispatchDate,
-  ) => {
+  const dispatchSalesOrder: ErpDataContextValue['dispatchSalesOrder'] = (orderId, dispatchDate) => {
     const res = txDispatchSalesOrder(state, scope, { orderId, dispatchDate });
     setState(res.nextState);
     pushNotification({
@@ -394,12 +609,23 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     return res.allocation;
   };
 
+  const createCreditNote: ErpDataContextValue['createCreditNote'] = (input) => {
+    const res = txCreateCreditNote(state, scope, input);
+    setState(res.nextState);
+    pushNotification({
+      category: 'governance',
+      title: `${res.creditNote.creditNumber} Issued`,
+      body: `Credit note issued against ${res.creditNote.invoiceNumber}`,
+    });
+    return res.creditNote;
+  };
+
   const deleteSalesOrder = (id: string) => {
     setState((prev) => {
       const target = prev.salesOrders.find((o) => o.id === id && o.companyId === companyId);
       if (target && (target.ledgerPosted || target.stockPosted)) {
         throw new Error(
-          `Cannot delete ${target.documentNumber} after financial or stock posting. Cancel or reverse journal instead.`,
+          `Cannot delete ${target.documentNumber} after financial or stock posting. Issue a Credit Note or cancel instead.`,
         );
       }
       return {
@@ -409,10 +635,53 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const openPosShift: ErpDataContextValue['openPosShift'] = (input) => {
+    const existingOpen = data.posShifts.find((s) => s.status === 'open');
+    if (existingOpen) {
+      throw new Error(`Register shift ${existingOpen.shiftNumber} is already open. Close it first.`);
+    }
+    const seqRes = nextSequenceNumber(state, companyId, 'SHIFT', 3);
+    const shift: PosShift = {
+      id: createUuid(),
+      companyId,
+      shiftNumber: seqRes.formatted,
+      registerName: input.registerName.trim() || 'Main Register',
+      cashierName: input.cashierName.trim() || principal.fullName,
+      openedAt: nowIso(),
+      openingCash: roundMoney(Math.max(0, input.openingCash)),
+      cashSalesTotal: 0,
+      cardUpiSalesTotal: 0,
+      expectedCash: roundMoney(Math.max(0, input.openingCash)),
+      status: 'open',
+    };
+    setState({
+      ...seqRes.nextState,
+      posShifts: [shift, ...seqRes.nextState.posShifts],
+    });
+    return shift;
+  };
+
+  const closePosShift: ErpDataContextValue['closePosShift'] = (shiftId, countedCash) => {
+    const res = txClosePosShift(state, scope, { shiftId, countedCash });
+    setState(res.nextState);
+    return res.shift;
+  };
+
   const createPurchaseOrder: ErpDataContextValue['createPurchaseOrder'] = (input) => {
     const res = txCreatePurchaseOrder(state, scope, input);
     setState(res.nextState);
     return res.order;
+  };
+
+  const approvePurchaseOrder = (orderId: string, approverName: string) => {
+    setState((prev) => ({
+      ...prev,
+      purchaseOrders: prev.purchaseOrders.map((po) =>
+        po.id === orderId && po.companyId === companyId
+          ? { ...po, status: 'ordered', requiresApproval: false, approvedBy: approverName }
+          : po,
+      ),
+    }));
   };
 
   const receivePurchaseOrder: ErpDataContextValue['receivePurchaseOrder'] = (input) => {
@@ -445,6 +714,87 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
         purchaseOrders: prev.purchaseOrders.filter((o) => o.id !== id),
       };
     });
+  };
+
+  const addPurchaseRequisition: ErpDataContextValue['addPurchaseRequisition'] = (input) => {
+    const seqRes = nextSequenceNumber(state, companyId, 'REQ', 4);
+    const created: PurchaseRequisition = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      reqNumber: seqRes.formatted,
+      status: 'pending',
+      createdAt: nowIso(),
+    };
+    setState({
+      ...seqRes.nextState,
+      purchaseRequisitions: [created, ...seqRes.nextState.purchaseRequisitions],
+    });
+    return created;
+  };
+
+  const updateRequisitionStatus = (reqId: string, status: PurchaseRequisition['status']) => {
+    setState((prev) => ({
+      ...prev,
+      purchaseRequisitions: prev.purchaseRequisitions.map((r) =>
+        r.id === reqId && r.companyId === companyId ? { ...r, status } : r,
+      ),
+    }));
+  };
+
+  const convertRequisitionToPo: ErpDataContextValue['convertRequisitionToPo'] = (
+    reqId,
+    vendorName,
+    expectedDate,
+  ) => {
+    const res = txConvertRequisitionToPo(state, scope, { reqId, vendorName, expectedDate });
+    setState(res.nextState);
+    return res.order;
+  };
+
+  const addWarehouse: ErpDataContextValue['addWarehouse'] = (input) => {
+    const created: Warehouse = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      warehouses: [created, ...prev.warehouses],
+    }));
+    return created;
+  };
+
+  const transferStock: ErpDataContextValue['transferStock'] = (input) => {
+    const res = txTransferStockBetweenWarehouses(state, scope, input);
+    setState(res.nextState);
+    return res.transfer;
+  };
+
+  const addShipment: ErpDataContextValue['addShipment'] = (input) => {
+    const seqRes = nextSequenceNumber(state, companyId, 'SHP', 4);
+    const created: ShipmentRecord = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      trackingNumber: seqRes.formatted,
+      createdAt: nowIso(),
+    };
+    setState({
+      ...seqRes.nextState,
+      shipments: [created, ...seqRes.nextState.shipments],
+    });
+    return created;
+  };
+
+  const updateShipmentStatus = (id: string, status: ShipmentRecord['status']) => {
+    setState((prev) => ({
+      ...prev,
+      shipments: prev.shipments.map((s) =>
+        s.id === id && s.companyId === companyId ? { ...s, status } : s,
+      ),
+    }));
   };
 
   const adjustStock: ErpDataContextValue['adjustStock'] = (input) => {
@@ -480,11 +830,186 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     return res.reversalJournal;
   };
 
-  const toggleFiscalPeriod: ErpDataContextValue['toggleFiscalPeriod'] = (
-    periodCode,
-    status,
-  ) => {
+  const toggleFiscalPeriod: ErpDataContextValue['toggleFiscalPeriod'] = (periodCode, status) => {
     setState((prev) => setFiscalPeriodStatus(prev, companyId, periodCode, status));
+  };
+
+  const registerFixedAsset: ErpDataContextValue['registerFixedAsset'] = (input) => {
+    const res = txRegisterFixedAsset(state, scope, input);
+    setState(res.nextState);
+    return res.asset;
+  };
+
+  const runMonthlyDepreciation: ErpDataContextValue['runMonthlyDepreciation'] = (
+    periodKey,
+    postingDate,
+  ) => {
+    const res = txRunMonthlyDepreciation(state, scope, { periodKey, postingDate });
+    setState(res.nextState);
+    return { totalDepreciation: res.totalDepreciation, assetsCount: res.assetsCount };
+  };
+
+  const addBudget: ErpDataContextValue['addBudget'] = (input) => {
+    const created: BudgetAllocation = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      budgets: [created, ...prev.budgets],
+    }));
+    return created;
+  };
+
+  const deleteBudget = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      budgets: prev.budgets.filter((b) => !(b.id === id && b.companyId === companyId)),
+    }));
+  };
+
+  const addExpenseClaim: ErpDataContextValue['addExpenseClaim'] = (input) => {
+    const seqRes = nextSequenceNumber(state, companyId, 'EXP', 4);
+    const created: ExpenseClaim = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      claimNumber: seqRes.formatted,
+      status: 'pending',
+      createdAt: nowIso(),
+    };
+    setState({
+      ...seqRes.nextState,
+      expenseClaims: [created, ...seqRes.nextState.expenseClaims],
+    });
+    return created;
+  };
+
+  const approveExpenseClaim: ErpDataContextValue['approveExpenseClaim'] = (
+    claimId,
+    payImmediately,
+    postingDate,
+  ) => {
+    const res = txApproveExpenseClaim(state, scope, { claimId, payImmediately, postingDate });
+    setState(res.nextState);
+    return res.claim;
+  };
+
+  const addBankTransaction: ErpDataContextValue['addBankTransaction'] = (input) => {
+    const created: BankTransaction = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      status: 'unmatched',
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      bankTransactions: [created, ...prev.bankTransactions],
+    }));
+    return created;
+  };
+
+  const reconcileBankTransaction = (txId: string, journalId: string) => {
+    setState((prev) => ({
+      ...prev,
+      bankTransactions: prev.bankTransactions.map((t) =>
+        t.id === txId && t.companyId === companyId
+          ? { ...t, matchedJournalId: journalId, status: 'reconciled' }
+          : t,
+      ),
+    }));
+  };
+
+  const addBom: ErpDataContextValue['addBom'] = (input) => {
+    const seqRes = nextSequenceNumber(state, companyId, 'BOM', 4);
+    const created: BomDefinition = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      bomCode: seqRes.formatted,
+      createdAt: nowIso(),
+    };
+    setState({
+      ...seqRes.nextState,
+      boms: [created, ...seqRes.nextState.boms],
+    });
+    return created;
+  };
+
+  const createWorkOrder: ErpDataContextValue['createWorkOrder'] = (input) => {
+    const seqRes = nextSequenceNumber(state, companyId, 'WO', 4);
+    const created: WorkOrder = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      woNumber: seqRes.formatted,
+      completedQty: 0,
+      status: 'planned',
+      totalMaterialCost: 0,
+      totalConversionCost: 0,
+      createdAt: nowIso(),
+    };
+    setState({
+      ...seqRes.nextState,
+      workOrders: [created, ...seqRes.nextState.workOrders],
+    });
+    return created;
+  };
+
+  const completeWorkOrder: ErpDataContextValue['completeWorkOrder'] = (
+    workOrderId,
+    completionDate,
+  ) => {
+    const res = txCompleteWorkOrder(state, scope, { workOrderId, completionDate });
+    setState(res.nextState);
+    pushNotification({
+      category: 'governance',
+      title: `${res.workOrder.woNumber} Completed`,
+      body: `Produced ${res.workOrder.targetQty} x ${res.workOrder.finishedSku} and consumed BOM components.`,
+    });
+    return res.workOrder;
+  };
+
+  const addQualityInspection: ErpDataContextValue['addQualityInspection'] = (input) => {
+    const seqRes = nextSequenceNumber(state, companyId, 'QC', 4);
+    const created: QualityInspection = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      inspectionNumber: seqRes.formatted,
+      createdAt: nowIso(),
+    };
+    setState({
+      ...seqRes.nextState,
+      qualityInspections: [created, ...seqRes.nextState.qualityInspections],
+    });
+    return created;
+  };
+
+  const addMaintenanceSchedule: ErpDataContextValue['addMaintenanceSchedule'] = (input) => {
+    const created: MaintenanceSchedule = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      maintenanceSchedules: [created, ...prev.maintenanceSchedules],
+    }));
+    return created;
+  };
+
+  const completeMaintenanceSchedule = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      maintenanceSchedules: prev.maintenanceSchedules.map((m) =>
+        m.id === id && m.companyId === companyId ? { ...m, status: 'completed' } : m,
+      ),
+    }));
   };
 
   const addEmployee: ErpDataContextValue['addEmployee'] = (input) => {
@@ -493,6 +1018,9 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       id: createUuid(),
       companyId,
       branchId: activeBranchId,
+      basicSalary: input.basicSalary ?? roundMoney(input.monthlySalary * 0.7),
+      allowances: input.allowances ?? roundMoney(input.monthlySalary * 0.3),
+      deductions: input.deductions ?? 0,
       createdAt: nowIso(),
     };
     setState((prev) => ({
@@ -531,6 +1059,121 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     return res.payrollRun;
   };
 
+  const addLeaveRequest: ErpDataContextValue['addLeaveRequest'] = (input) => {
+    const created: LeaveRequest = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      status: 'pending',
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      leaveRequests: [created, ...prev.leaveRequests],
+    }));
+    return created;
+  };
+
+  const updateLeaveStatus = (id: string, status: LeaveRequest['status']) => {
+    setState((prev) => ({
+      ...prev,
+      leaveRequests: prev.leaveRequests.map((l) =>
+        l.id === id && l.companyId === companyId ? { ...l, status } : l,
+      ),
+    }));
+  };
+
+  const addAttendanceLog: ErpDataContextValue['addAttendanceLog'] = (input) => {
+    const created: AttendanceLog = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      attendanceLogs: [created, ...prev.attendanceLogs],
+    }));
+    return created;
+  };
+
+  const addJobOpening: ErpDataContextValue['addJobOpening'] = (input) => {
+    const created: JobOpening = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      jobOpenings: [created, ...prev.jobOpenings],
+    }));
+    return created;
+  };
+
+  const addCandidate: ErpDataContextValue['addCandidate'] = (input) => {
+    const created: Candidate = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      candidates: [created, ...prev.candidates],
+    }));
+    return created;
+  };
+
+  const updateCandidateStage = (id: string, stage: Candidate['stage']) => {
+    setState((prev) => ({
+      ...prev,
+      candidates: prev.candidates.map((c) =>
+        c.id === id && c.companyId === companyId ? { ...c, stage } : c,
+      ),
+    }));
+  };
+
+  const hireCandidate: ErpDataContextValue['hireCandidate'] = (
+    candidateId,
+    joinedDate,
+    monthlySalary,
+  ) => {
+    const res = txHireCandidateToEmployee(state, scope, {
+      candidateId,
+      joinedDate,
+      monthlySalary,
+    });
+    setState(res.nextState);
+    return res.employee;
+  };
+
+  const addPerformanceGoal: ErpDataContextValue['addPerformanceGoal'] = (input) => {
+    const created: PerformanceGoal = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      performanceGoals: [created, ...prev.performanceGoals],
+    }));
+    return created;
+  };
+
+  const updatePerformanceProgress = (id: string, progressPct: number) => {
+    const clamped = Math.max(0, Math.min(100, progressPct));
+    setState((prev) => ({
+      ...prev,
+      performanceGoals: prev.performanceGoals.map((g) =>
+        g.id === id && g.companyId === companyId
+          ? { ...g, progressPct: clamped, status: clamped >= 100 ? 'completed' : g.status }
+          : g,
+      ),
+    }));
+  };
+
   const addProjectTask: ErpDataContextValue['addProjectTask'] = (input) => {
     const created: ProjectTask = {
       ...input,
@@ -558,6 +1201,30 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({
       ...prev,
       projectTasks: prev.projectTasks.filter((t) => !(t.id === id && t.companyId === companyId)),
+    }));
+  };
+
+  const addTimesheet: ErpDataContextValue['addTimesheet'] = (input) => {
+    const created: TimesheetEntry = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      billed: false,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      timesheets: [created, ...prev.timesheets],
+    }));
+    return created;
+  };
+
+  const markTimesheetBilled = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      timesheets: prev.timesheets.map((t) =>
+        t.id === id && t.companyId === companyId ? { ...t, billed: true } : t,
+      ),
     }));
   };
 
@@ -593,8 +1260,8 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
-  const addDocument: ErpDataContextValue['addDocument'] = (input) => {
-    const created: DocumentRecord = {
+  const addKbArticle: ErpDataContextValue['addKbArticle'] = (input) => {
+    const created: KbArticle = {
       ...input,
       id: createUuid(),
       companyId,
@@ -602,9 +1269,46 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     };
     setState((prev) => ({
       ...prev,
+      kbArticles: [created, ...prev.kbArticles],
+    }));
+    return created;
+  };
+
+  const addDocument: ErpDataContextValue['addDocument'] = (input) => {
+    const created: DocumentRecord = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      version: input.version ?? 1,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
       documents: [created, ...prev.documents],
     }));
     return created;
+  };
+
+  const signDocument = (id: string, signerName: string) => {
+    setState((prev) => ({
+      ...prev,
+      documents: prev.documents.map((d) =>
+        d.id === id && d.companyId === companyId
+          ? { ...d, signedBy: signerName.trim() || principal.fullName, signedAt: nowIso() }
+          : d,
+      ),
+    }));
+  };
+
+  const bumpDocumentVersion = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      documents: prev.documents.map((d) =>
+        d.id === id && d.companyId === companyId
+          ? { ...d, version: (d.version ?? 1) + 1 }
+          : d,
+      ),
+    }));
   };
 
   const deleteDocument = (id: string) => {
@@ -632,6 +1336,71 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({
       ...prev,
       campaigns: prev.campaigns.filter((c) => !(c.id === id && c.companyId === companyId)),
+    }));
+  };
+
+  const addApprovalRule: ErpDataContextValue['addApprovalRule'] = (input) => {
+    const created: ApprovalRule = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      approvalRules: [created, ...prev.approvalRules],
+    }));
+    return created;
+  };
+
+  const toggleApprovalRule = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      approvalRules: prev.approvalRules.map((r) =>
+        r.id === id && r.companyId === companyId ? { ...r, active: !r.active } : r,
+      ),
+    }));
+  };
+
+  const addCustomField: ErpDataContextValue['addCustomField'] = (input) => {
+    const created: CustomFieldDefinition = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      customFields: [created, ...prev.customFields],
+    }));
+    return created;
+  };
+
+  const deleteCustomField = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      customFields: prev.customFields.filter((f) => !(f.id === id && f.companyId === companyId)),
+    }));
+  };
+
+  const addBiReport: ErpDataContextValue['addBiReport'] = (input) => {
+    const created: BiSavedReport = {
+      ...input,
+      id: createUuid(),
+      companyId,
+      createdAt: nowIso(),
+    };
+    setState((prev) => ({
+      ...prev,
+      biReports: [created, ...prev.biReports],
+    }));
+    return created;
+  };
+
+  const deleteBiReport = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      biReports: prev.biReports.filter((r) => !(r.id === id && r.companyId === companyId)),
     }));
   };
 
@@ -683,28 +1452,54 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
 
   const clearActiveCompanyData = () => {
     setState((prev) => {
+      const keepOther = <T extends { companyId: string }>(arr: T[]) =>
+        arr.filter((x) => x.companyId !== companyId);
       const cleaned: ErpDatabaseState = {
         ...prev,
-        catalogue: prev.catalogue.filter((x) => x.companyId !== companyId),
-        contacts: prev.contacts.filter((x) => x.companyId !== companyId),
-        salesOrders: prev.salesOrders.filter((x) => x.companyId !== companyId),
-        purchaseOrders: prev.purchaseOrders.filter((x) => x.companyId !== companyId),
-        stockMovements: prev.stockMovements.filter((x) => x.companyId !== companyId),
-        inventoryLots: prev.inventoryLots.filter((x) => x.companyId !== companyId),
-        stockReservations: prev.stockReservations.filter((x) => x.companyId !== companyId),
-        accounts: prev.accounts.filter((x) => x.companyId !== companyId),
-        fiscalPeriods: prev.fiscalPeriods.filter((x) => x.companyId !== companyId),
-        journals: prev.journals.filter((x) => x.companyId !== companyId),
-        paymentAllocations: prev.paymentAllocations.filter((x) => x.companyId !== companyId),
-        ledgerEntries: prev.ledgerEntries.filter((x) => x.companyId !== companyId),
-        employees: prev.employees.filter((x) => x.companyId !== companyId),
-        payrollRuns: prev.payrollRuns.filter((x) => x.companyId !== companyId),
-        projectTasks: prev.projectTasks.filter((x) => x.companyId !== companyId),
-        supportTickets: prev.supportTickets.filter((x) => x.companyId !== companyId),
-        documents: prev.documents.filter((x) => x.companyId !== companyId),
-        campaigns: prev.campaigns.filter((x) => x.companyId !== companyId),
-        industryRecords: prev.industryRecords.filter((x) => x.companyId !== companyId),
-        auditLogs: prev.auditLogs.filter((x) => x.companyId !== companyId),
+        catalogue: keepOther(prev.catalogue),
+        contacts: keepOther(prev.contacts),
+        salesOrders: keepOther(prev.salesOrders),
+        creditNotes: keepOther(prev.creditNotes),
+        posShifts: keepOther(prev.posShifts),
+        purchaseOrders: keepOther(prev.purchaseOrders),
+        purchaseRequisitions: keepOther(prev.purchaseRequisitions),
+        warehouses: keepOther(prev.warehouses),
+        stockTransfers: keepOther(prev.stockTransfers),
+        shipments: keepOther(prev.shipments),
+        stockMovements: keepOther(prev.stockMovements),
+        inventoryLots: keepOther(prev.inventoryLots),
+        stockReservations: keepOther(prev.stockReservations),
+        accounts: keepOther(prev.accounts),
+        fiscalPeriods: keepOther(prev.fiscalPeriods),
+        journals: keepOther(prev.journals),
+        paymentAllocations: keepOther(prev.paymentAllocations),
+        ledgerEntries: keepOther(prev.ledgerEntries),
+        fixedAssets: keepOther(prev.fixedAssets),
+        budgets: keepOther(prev.budgets),
+        expenseClaims: keepOther(prev.expenseClaims),
+        bankTransactions: keepOther(prev.bankTransactions),
+        boms: keepOther(prev.boms),
+        workOrders: keepOther(prev.workOrders),
+        qualityInspections: keepOther(prev.qualityInspections),
+        maintenanceSchedules: keepOther(prev.maintenanceSchedules),
+        employees: keepOther(prev.employees),
+        payrollRuns: keepOther(prev.payrollRuns),
+        leaveRequests: keepOther(prev.leaveRequests),
+        attendanceLogs: keepOther(prev.attendanceLogs),
+        jobOpenings: keepOther(prev.jobOpenings),
+        candidates: keepOther(prev.candidates),
+        performanceGoals: keepOther(prev.performanceGoals),
+        projectTasks: keepOther(prev.projectTasks),
+        timesheets: keepOther(prev.timesheets),
+        supportTickets: keepOther(prev.supportTickets),
+        kbArticles: keepOther(prev.kbArticles),
+        documents: keepOther(prev.documents),
+        campaigns: keepOther(prev.campaigns),
+        approvalRules: keepOther(prev.approvalRules),
+        customFields: keepOther(prev.customFields),
+        biReports: keepOther(prev.biReports),
+        industryRecords: keepOther(prev.industryRecords),
+        auditLogs: keepOther(prev.auditLogs),
       };
       return ensureCompanyAccounts(cleaned, companyId).nextState;
     });
@@ -716,39 +1511,88 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
         storageMode: defaultDevStorageAdapter.mode,
         data,
         trialBalance,
+        financialStatements,
+        agingReport,
         metrics,
         addCatalogueItem,
         deleteCatalogueItem,
         addContact,
         updateContactStage,
+        addContactActivity,
+        updateContactScore,
         deleteContact,
         createSalesOrder,
         updateSalesStatus,
         dispatchSalesOrder,
         recordSalesPayment,
+        createCreditNote,
         deleteSalesOrder,
+        openPosShift,
+        closePosShift,
         createPurchaseOrder,
+        approvePurchaseOrder,
         receivePurchaseOrder,
         recordPurchasePayment,
         deletePurchaseOrder,
+        addPurchaseRequisition,
+        updateRequisitionStatus,
+        convertRequisitionToPo,
+        addWarehouse,
+        transferStock,
+        addShipment,
+        updateShipmentStatus,
         adjustStock,
         postBalancedJournal,
         reverseJournal,
         toggleFiscalPeriod,
+        registerFixedAsset,
+        runMonthlyDepreciation,
+        addBudget,
+        deleteBudget,
+        addExpenseClaim,
+        approveExpenseClaim,
+        addBankTransaction,
+        reconcileBankTransaction,
+        addBom,
+        createWorkOrder,
+        completeWorkOrder,
+        addQualityInspection,
+        addMaintenanceSchedule,
+        completeMaintenanceSchedule,
         addEmployee,
         toggleEmployeeStatus,
         deleteEmployee,
         runMonthlyPayroll,
+        addLeaveRequest,
+        updateLeaveStatus,
+        addAttendanceLog,
+        addJobOpening,
+        addCandidate,
+        updateCandidateStage,
+        hireCandidate,
+        addPerformanceGoal,
+        updatePerformanceProgress,
         addProjectTask,
         updateProjectTaskStatus,
         deleteProjectTask,
+        addTimesheet,
+        markTimesheetBilled,
         addSupportTicket,
         updateSupportTicketStatus,
         deleteSupportTicket,
+        addKbArticle,
         addDocument,
+        signDocument,
+        bumpDocumentVersion,
         deleteDocument,
         addCampaign,
         deleteCampaign,
+        addApprovalRule,
+        toggleApprovalRule,
+        addCustomField,
+        deleteCustomField,
+        addBiReport,
+        deleteBiReport,
         addIndustryRecord,
         updateIndustryRecordStatus,
         deleteIndustryRecord,
