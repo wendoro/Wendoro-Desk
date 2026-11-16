@@ -1,8 +1,13 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { SubscriptionTier } from '@/src/core/contracts/tenancy';
+import { SubscriptionTier, UserTypeId } from '@/src/core/contracts/tenancy';
 import { WENDORO_LICENSE_PLANS } from '@/src/core/contracts/licensing';
+import {
+  expandSelectionWithDependencies,
+  getEntitledModulesForLicense,
+  normalizePurchasedModules,
+} from '@/src/core/contracts/marketplace';
 
 export type LicensedPlatform = 'desktop' | 'android' | 'both';
 
@@ -38,6 +43,8 @@ export interface StoredLicenseRecord {
   issuedAt: string;
   expiresAt: string | null;
   activatedDevices: ActivatedDeviceRecord[];
+  purchasedModules?: string[];
+  userType?: UserTypeId;
 }
 
 export interface PublicLicenseSummary {
@@ -54,6 +61,8 @@ export interface PublicLicenseSummary {
   issuedAt: string;
   expiresAt: string | null;
   activatedDevices: ActivatedDeviceRecord[];
+  purchasedModules: string[];
+  userType?: UserTypeId;
 }
 
 interface LicenseRegistryStore {
@@ -187,6 +196,8 @@ function toPublicSummary(record: StoredLicenseRecord): PublicLicenseSummary {
     issuedAt: record.issuedAt,
     expiresAt: record.expiresAt,
     activatedDevices: record.activatedDevices,
+    purchasedModules: normalizePurchasedModules(record.purchasedModules),
+    userType: record.userType,
   };
 }
 
@@ -325,6 +336,7 @@ export function createLicenseService(options: LicenseServiceOptions = {}) {
       issuedAt,
       expiresAt,
       activatedDevices,
+      purchasedModules: [],
     };
 
     store.licenses.unshift(record);
@@ -546,6 +558,86 @@ export function createLicenseService(options: LicenseServiceOptions = {}) {
     };
   };
 
+  const purchaseModulesForLicense = (input: {
+    licenseKey: string;
+    moduleSlugs: string[];
+    includeDependencies?: boolean;
+    deviceId?: string;
+    userType?: UserTypeId;
+  }) => {
+    const normalizedKey = input.licenseKey.trim().toUpperCase();
+    if (!normalizedKey) {
+      throw new LicenseServerError(400, 'MISSING_LICENSE_KEY', 'License key is required.');
+    }
+    if (!Array.isArray(input.moduleSlugs) || input.moduleSlugs.length === 0) {
+      throw new LicenseServerError(
+        400,
+        'NO_MODULES_SELECTED',
+        'Select at least one Marketplace module to purchase.',
+      );
+    }
+
+    const store = readStore();
+    const record = store.licenses.find((l) => l.licenseKey === normalizedKey);
+    if (!record) {
+      throw new LicenseServerError(
+        404,
+        'LICENSE_NOT_FOUND',
+        'License key was not found on this license server.',
+      );
+    }
+    if (!verifyStoredSignature(record)) {
+      throw new LicenseServerError(
+        403,
+        'INVALID_LICENSE_SIGNATURE',
+        'License key signature verification failed.',
+      );
+    }
+    if (record.status !== 'active') {
+      throw new LicenseServerError(
+        403,
+        'LICENSE_INACTIVE',
+        `License status is "${record.status}" and cannot accept Marketplace add-ons.`,
+      );
+    }
+    if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
+      record.status = 'expired';
+      writeStore(store);
+      throw new LicenseServerError(403, 'LICENSE_EXPIRED', 'This license key has expired.');
+    }
+
+    const existingPurchased = normalizePurchasedModules(record.purchasedModules);
+    const currentEntitled = getEntitledModulesForLicense(record.planTier, existingPurchased);
+    const expanded =
+      input.includeDependencies === false
+        ? normalizePurchasedModules(input.moduleSlugs).filter(
+            (slug) => !currentEntitled.includes(slug),
+          )
+        : expandSelectionWithDependencies(input.moduleSlugs, currentEntitled).resolvedSlugs;
+
+    const nextPurchased = normalizePurchasedModules([...existingPurchased, ...expanded]);
+    record.purchasedModules = nextPurchased;
+    if (input.userType) {
+      record.userType = input.userType;
+    }
+
+    writeStore(store);
+
+    const activationToken = signActivationToken(secret, {
+      licenseId: record.id,
+      licenseKey: record.licenseKey,
+      deviceId: (input.deviceId || 'MARKETPLACE-CLIENT').trim().slice(0, 128),
+      planTier: record.planTier,
+      verifiedAt: new Date().toISOString(),
+    });
+
+    return {
+      license: toPublicSummary(record),
+      activationToken,
+      addedModules: expanded,
+    };
+  };
+
   const getServerStats = () => {
     const store = readStore();
     const totalDevices = store.licenses.reduce(
@@ -566,6 +658,7 @@ export function createLicenseService(options: LicenseServiceOptions = {}) {
     loginAndListLicenses,
     activateLicense,
     verifyLicense,
+    purchaseModulesForLicense,
     getServerStats,
   };
 }

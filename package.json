@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "build:cloudflare": "npm run lint && npm run build",
+    "preview:cloudflare": "npm run build && npx wrangler dev",
     "deploy:cloudflare": "npm run build && npx wrangler deploy"
   },
   "dependencies": {

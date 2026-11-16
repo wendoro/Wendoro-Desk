@@ -56,6 +56,30 @@ import {
   generateDashboardCsvReport,
   generateDashboardPdfReport,
 } from '@/src/core/engine/dashboardExport';
+import { indexedDB, IDBKeyRange } from 'fake-indexeddb';
+import {
+  DexieOfflineRepository,
+  type SyncTransport,
+  type SyncTransportPayload,
+} from '@/src/core/engine/dexieStorage';
+import { filterCommandPaletteItems } from '@/src/components/shell/CommandPalette';
+import {
+  enqueueToastList,
+  removeToastFromList,
+  type ToastRecord,
+} from '@/src/components/ui/ToastProvider';
+import {
+  computeMarketplaceCartPricing,
+  expandSelectionWithDependencies,
+  filterMarketplaceEntries,
+  getEntitledModulesForLicense,
+  getMarketplaceCatalog,
+  isModulePurchasedForLicense,
+} from '@/src/core/contracts/marketplace';
+import {
+  createCloudflareWorkerHandler,
+  type EdgeKvNamespace,
+} from '@/src/worker/index';
 import type { SessionPrincipal } from '@/src/core/contracts/tenancy';
 import type { AuditLogRecord, ErpDatabaseState } from '@/src/core/store/erpTypes';
 
@@ -1325,4 +1349,461 @@ test('16. Dashboard Export utility generates RFC-4180 CSV and valid binary PDF 1
     assert.ok(slice.startsWith(`${i + 1} 0 obj`), `Expected object ${i + 1} at byte ${offset}, found "${slice}"`);
   });
 });
+
+test('17. Dexie.js IndexedDB persists CRM & accounting ledgers locally across reloads and blocks network sync until online', async () => {
+  const dbName = `wendoro_test_db_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  let repo = new DexieOfflineRepository(dbName, { indexedDB, IDBKeyRange });
+
+  try {
+    let state = baseState();
+
+    // Add CRM entry
+    state = {
+      ...state,
+      contacts: [
+        {
+          id: createUuid(),
+          companyId: COMPANY_A,
+          type: 'customer',
+          name: 'Meera Joshi',
+          organization: 'Surya Heavy Industries',
+          email: 'meera@surya.example',
+          phone: '+91-98200-11223',
+          stage: 'qualified',
+          estimatedValue: 18500,
+          leadScore: 88,
+          loyaltyPoints: 0,
+          notes: 'Requested bulk hydraulic valve quote',
+          activities: [],
+          createdAt: '2026-11-16T08:00:00.000Z',
+        },
+      ],
+    };
+
+    // Add inventory item + sales invoice generating double-entry accounting journals & ledger entries
+    const itemRes = txAddCatalogueItem(state, SCOPE_A, {
+      sku: 'VLV-900',
+      name: 'High-Pressure Valve',
+      type: 'physical',
+      category: 'Hydraulics',
+      unit: 'Nos',
+      costPrice: 120,
+      sellingPrice: 250,
+      taxRate: 10,
+      trackStock: true,
+      stockOnHand: 15,
+      reorderLevel: 3,
+    });
+    state = itemRes.nextState;
+
+    const invRes = txCreateSalesOrder(state, SCOPE_A, {
+      documentType: 'invoice',
+      customerName: 'Surya Heavy Industries',
+      issueDate: '2026-11-16',
+      dueDate: '2026-11-30',
+      status: 'sent',
+      lines: [
+        {
+          itemId: itemRes.item.id,
+          description: 'High-Pressure Valve',
+          quantity: 4,
+          unitPrice: 250,
+          taxRate: 10,
+        },
+      ],
+      notes: 'Offline field order',
+    });
+    state = invRes.nextState;
+
+    const persistRes = await repo.persistState(state, {
+      queueSync: true,
+      activeCompanyId: COMPANY_A,
+      changeSummary: 'CRM lead + Sales invoice posted offline',
+    });
+    assert.equal(persistRes.pendingCount, 1);
+
+    // Mock sync transport tracking calls
+    const pushedPayloads: SyncTransportPayload[] = [];
+    let reachabilityChecks = 0;
+    const mockTransport: SyncTransport = {
+      async checkReachable() {
+        reachabilityChecks += 1;
+        return true;
+      },
+      async pushCompanySync(payload) {
+        pushedPayloads.push(payload);
+        return { ok: true, serverTimestamp: '2026-11-16T10:00:00.000Z' };
+      },
+    };
+
+    // Offline gate: must NOT call transport when offline
+    const offlineAttempt = await repo.syncPendingChanges(mockTransport, () => false);
+    assert.equal(offlineAttempt.skippedOffline, true);
+    assert.equal(offlineAttempt.syncedCount, 0);
+    assert.equal(offlineAttempt.remainingCount, 1);
+    assert.equal(reachabilityChecks, 0);
+    assert.equal(pushedPayloads.length, 0);
+
+    // Close & reopen fresh repository instance to verify durable IndexedDB hydration
+    await repo.close();
+    repo = new DexieOfflineRepository(dbName, { indexedDB, IDBKeyRange });
+
+    const hydrated = await repo.hydrateState({ fallbackLegacyState: EMPTY_ERP_DATABASE_STATE });
+    assert.equal(hydrated.pendingOutboxCount, 1);
+    assert.equal(hydrated.state.contacts.length, 1);
+    assert.equal(hydrated.state.contacts[0]?.name, 'Meera Joshi');
+    assert.equal(hydrated.state.catalogue.length, 1);
+    assert.equal(hydrated.state.salesOrders.length, 1);
+    assert.equal(hydrated.state.journals.length, state.journals.length);
+    assert.equal(hydrated.state.ledgerEntries.length, state.ledgerEntries.length);
+
+    // Reconnected: syncPendingChanges flushes queued outbox cleanly
+    const onlineAttempt = await repo.syncPendingChanges(mockTransport, () => true);
+    assert.equal(onlineAttempt.skippedOffline, false);
+    assert.equal(onlineAttempt.syncedCount, 1);
+    assert.equal(onlineAttempt.remainingCount, 0);
+    assert.equal(onlineAttempt.error, null);
+    assert.equal(pushedPayloads.length, 1);
+    assert.equal(pushedPayloads[0]?.companyId, COMPANY_A);
+    assert.ok(pushedPayloads[0]?.stateSnapshotJson.includes('Meera Joshi'));
+    assert.ok(pushedPayloads[0]?.stateSnapshotJson.includes('VLV-900'));
+  } finally {
+    await repo.close();
+  }
+});
+
+test('18. Command Palette search filters modules, CRM entries, and inventory items; Toast queue enforces deduplication and max limit', () => {
+  const paletteFixture = [
+    {
+      id: 'mod-accounting',
+      scope: 'modules' as const,
+      group: 'Business Module',
+      label: 'Accounting & Double-Entry GL',
+      detail: 'Journals, trial balance, and aging',
+      searchKeywords: 'accounting finance gl journals',
+    },
+    {
+      id: 'crm-1',
+      scope: 'crm' as const,
+      group: 'CRM Entry',
+      label: 'Ananya Verma · Apex Retail',
+      detail: 'QUALIFIED · ananya@apex.example',
+      searchKeywords: 'ananya verma apex retail crm lead',
+    },
+    {
+      id: 'inv-1',
+      scope: 'inventory' as const,
+      group: 'Inventory SKU',
+      label: 'RED-PUMP · Hydraulic Pump Red',
+      detail: 'Machinery · 4 Nos on hand',
+      searchKeywords: 'red-pump hydraulic pump inventory stock',
+    },
+  ];
+
+  // Scope + multi-token search checks
+  assert.equal(filterCommandPaletteItems(paletteFixture, '', 'all').length, 3);
+  assert.equal(filterCommandPaletteItems(paletteFixture, '', 'crm').length, 1);
+  assert.equal(filterCommandPaletteItems(paletteFixture, 'apex ananya', 'all')[0]?.id, 'crm-1');
+  assert.equal(filterCommandPaletteItems(paletteFixture, 'red-pump', 'inventory')[0]?.id, 'inv-1');
+  assert.equal(filterCommandPaletteItems(paletteFixture, 'red-pump', 'crm').length, 0);
+  assert.equal(filterCommandPaletteItems(paletteFixture, 'accounting', 'modules')[0]?.id, 'mod-accounting');
+
+  // Toast queue deduplication & 4-item cap
+  let queue: ToastRecord[] = [];
+  const baseTime = 1_700_000_000_000;
+
+  queue = enqueueToastList(queue, {
+    id: 't1',
+    title: 'Background Sync Complete',
+    variant: 'success',
+    category: 'sync',
+    durationMs: 4500,
+    createdAt: baseTime,
+  });
+  // Duplicate within 2000ms replaces previous identical title rather than stacking
+  queue = enqueueToastList(queue, {
+    id: 't1-dup',
+    title: 'Background Sync Complete',
+    variant: 'success',
+    category: 'sync',
+    durationMs: 4500,
+    createdAt: baseTime + 500,
+  });
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0]?.id, 't1-dup');
+
+  // Push 4 more unique toasts -> capped at 4 visible items (oldest dropped)
+  for (let i = 2; i <= 5; i++) {
+    queue = enqueueToastList(queue, {
+      id: `t${i}`,
+      title: `Alert ${i}`,
+      variant: 'info',
+      category: 'alert',
+      durationMs: 4500,
+      createdAt: baseTime + i * 1000,
+    });
+  }
+  assert.equal(queue.length, 4);
+  assert.deepEqual(
+    queue.map((t) => t.id),
+    ['t2', 't3', 't4', 't5'],
+  );
+
+  queue = removeToastFromList(queue, 't3');
+  assert.deepEqual(
+    queue.map((t) => t.id),
+    ['t2', 't4', 't5'],
+  );
+});
+
+test('19. Module Marketplace resolves per-user-type entitlements, transitive dependencies, pricing, and license-persisted module purchases', () => {
+  // 1. Free tier includes only catalogue, crm, accounting (plus core platform slugs)
+  const freeEntitled = getEntitledModulesForLicense('free', []);
+  assert.equal(isModulePurchasedForLicense('catalogue', 'free', []), true);
+  assert.equal(isModulePurchasedForLicense('crm', 'free', []), true);
+  assert.equal(isModulePurchasedForLicense('accounting', 'free', []), true);
+  assert.equal(isModulePurchasedForLicense('sales', 'free', []), false);
+  assert.equal(isModulePurchasedForLicense('industry_manufacturing', 'free', []), false);
+  assert.ok(!freeEntitled.includes('sales'));
+
+  // 2. Selecting industry_manufacturing on a free license auto-resolves inventory + purchase (already has catalogue & accounting)
+  const expanded = expandSelectionWithDependencies(
+    ['industry_manufacturing'],
+    freeEntitled,
+  );
+  assert.deepEqual(expanded.addedDependencies.sort(), ['inventory', 'purchase']);
+  assert.deepEqual(
+    expanded.resolvedSlugs.sort(),
+    ['industry_manufacturing', 'inventory', 'purchase'],
+  );
+
+  // 3. Cart pricing with 15% pack discount
+  const pricing = computeMarketplaceCartPricing(expanded.resolvedSlugs, 'INR', 15);
+  assert.equal(pricing.items.length, 3);
+  assert.equal(pricing.subtotal, 1299 + 1199 + 2299);
+  assert.equal(pricing.discountAmount, Math.round((4797 * 15) / 100));
+  assert.equal(pricing.total, 4797 - pricing.discountAmount);
+
+  // 4. Filter catalog by user type recommendation
+  const catalog = getMarketplaceCatalog();
+  assert.equal(catalog.length, 16);
+  const mfgRecs = filterMarketplaceEntries(catalog, {
+    query: '',
+    scope: 'recommended',
+    category: 'all',
+    userType: 'manufacturer',
+    planTier: 'free',
+    purchasedModules: [],
+  });
+  assert.ok(mfgRecs.some((e) => e.listing.slug === 'industry_manufacturing'));
+  assert.ok(!mfgRecs.some((e) => e.listing.slug === 'industry_realestate'));
+
+  // 5. Server purchaseModulesForLicense persists add-on modules + dependencies to licenses.json
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wendoro-mkt-test-'));
+  try {
+    const service = createLicenseService({
+      dataDir: tmpDir,
+      signingSecret: 'marketplace-unit-test-secret-key-32-chars',
+    });
+    const reg = service.registerAndIssueLicense({
+      email: 'buyer@factory.example',
+      password: 'Password123',
+      fullName: 'Vikram Rao',
+      organizationName: 'ForgeWorks Manufacturing',
+      planTier: 'free',
+      platform: 'both',
+    });
+    assert.deepEqual(reg.license.purchasedModules, []);
+
+    const purchaseRes = service.purchaseModulesForLicense({
+      licenseKey: reg.license.licenseKey,
+      moduleSlugs: ['industry_manufacturing'],
+      includeDependencies: true,
+      userType: 'manufacturer',
+      deviceId: 'desktop-mfg-01',
+    });
+
+    assert.equal(purchaseRes.license.userType, 'manufacturer');
+    assert.deepEqual(
+      purchaseRes.license.purchasedModules.sort(),
+      ['industry_manufacturing', 'inventory', 'purchase'],
+    );
+    assert.ok(purchaseRes.activationToken.length > 20);
+
+    // Reloading via verifyLicense returns the persisted purchasedModules & userType
+    const verified = service.verifyLicense({ licenseKey: reg.license.licenseKey });
+    assert.equal(verified.valid, true);
+    assert.equal(verified.license?.userType, 'manufacturer');
+    assert.deepEqual(
+      verified.license?.purchasedModules.sort(),
+      ['industry_manufacturing', 'inventory', 'purchase'],
+    );
+
+    // Purchasing with an invalid key rejects with 404
+    assert.throws(
+      () =>
+        service.purchaseModulesForLicense({
+          licenseKey: 'WND-COMM-00000000-BAD00000',
+          moduleSlugs: ['sales'],
+        }),
+      (err: unknown) => err instanceof LicenseServerError && err.statusCode === 404,
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('20. Cloudflare Edge Worker serves /api/health, license register/login/activate/verify, Marketplace purchases, sync checkpoints, and asset fallback', async () => {
+  const kvBacking = new Map<string, string>();
+  const mockKv: EdgeKvNamespace = {
+    async get(key) {
+      return kvBacking.get(key) ?? null;
+    },
+    async put(key, value) {
+      kvBacking.set(key, value);
+    },
+  };
+
+  let assetFallbackCalls = 0;
+  const mockEnv = {
+    LICENSE_KV: mockKv,
+    LICENSE_SIGNING_SECRET: 'cloudflare-edge-test-secret-32-chars!',
+    ASSETS: {
+      async fetch(req: Request | string) {
+        assetFallbackCalls += 1;
+        const url = typeof req === 'string' ? req : req.url;
+        return new Response(`<html>SPA:${url}</html>`, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        });
+      },
+    },
+  };
+
+  const worker = createCloudflareWorkerHandler();
+
+  // 1. Health check & setup status
+  const healthRes = await worker.fetch(new Request('https://wendoro.workers.dev/api/health'), mockEnv);
+  assert.equal(healthRes.status, 200);
+  const healthJson = (await healthRes.json()) as { status: string; runtime: string; kvPersisted: boolean };
+  assert.equal(healthJson.status, 'ok');
+  assert.equal(healthJson.runtime, 'cloudflare-workers');
+  assert.equal(healthJson.kvPersisted, true);
+
+  // 2. Register & issue signed license
+  const regRes = await worker.fetch(
+    new Request('https://wendoro.workers.dev/api/licenses/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'edge@wendoro.example',
+        password: 'EdgePassword123',
+        fullName: 'Aarav Mehta',
+        organizationName: 'Edge Traders Pvt Ltd',
+        planTier: 'free',
+        platform: 'both',
+        deviceId: 'desktop-edge-01',
+      }),
+    }),
+    mockEnv,
+  );
+  assert.equal(regRes.status, 201);
+  const regJson = (await regRes.json()) as {
+    ok: boolean;
+    license: { licenseKey: string; planTier: string };
+    activationToken?: string;
+  };
+  assert.equal(regJson.ok, true);
+  assert.ok(regJson.license.licenseKey.startsWith('WND-COMM-'));
+  assert.ok(regJson.activationToken && regJson.activationToken.includes('.'));
+
+  // 3. Purchase Marketplace modules on the edge Worker
+  const mktRes = await worker.fetch(
+    new Request('https://wendoro.workers.dev/api/licenses/purchase-modules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        licenseKey: regJson.license.licenseKey,
+        moduleSlugs: ['sales'],
+        includeDependencies: true,
+        userType: 'retailer',
+        deviceId: 'desktop-edge-01',
+      }),
+    }),
+    mockEnv,
+  );
+  assert.equal(mktRes.status, 200);
+  const mktJson = (await mktRes.json()) as {
+    ok: boolean;
+    license: { purchasedModules: string[]; userType: string };
+  };
+  assert.equal(mktJson.ok, true);
+  assert.equal(mktJson.license.userType, 'retailer');
+  assert.ok(mktJson.license.purchasedModules.includes('sales'));
+
+  // 4. Verify persistence across a fresh Worker isolate sharing KV
+  const freshWorker = createCloudflareWorkerHandler();
+  const verifyRes = await freshWorker.fetch(
+    new Request('https://wendoro.workers.dev/api/licenses/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        licenseKey: regJson.license.licenseKey,
+        deviceId: 'desktop-edge-01',
+      }),
+    }),
+    mockEnv,
+  );
+  assert.equal(verifyRes.status, 200);
+  const verifyJson = (await verifyRes.json()) as {
+    valid: boolean;
+    deviceBound: boolean;
+    license: { purchasedModules: string[] };
+  };
+  assert.equal(verifyJson.valid, true);
+  assert.equal(verifyJson.deviceBound, true);
+  assert.ok(verifyJson.license.purchasedModules.includes('sales'));
+
+  // 5. Offline Dexie sync checkpoint persistence
+  const syncRes = await freshWorker.fetch(
+    new Request(`https://wendoro.workers.dev/api/erp/${COMPANY_A}/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Wendoro-License-Key': regJson.license.licenseKey,
+      },
+      body: JSON.stringify({
+        outboxId: 'obx-edge-1',
+        companyId: COMPANY_A,
+        changeSummary: 'Cloudflare edge sync test',
+        recordCount: 12,
+        checksum: 'chk-edge-12',
+        stateSnapshotJson: '{"contacts":[]}',
+        createdAt: '2026-11-16T12:00:00.000Z',
+      }),
+    }),
+    mockEnv,
+  );
+  assert.equal(syncRes.status, 200);
+  const syncStatusRes = await freshWorker.fetch(
+    new Request(`https://wendoro.workers.dev/api/erp/${COMPANY_A}/sync/status`),
+    mockEnv,
+  );
+  assert.equal(syncStatusRes.status, 200);
+  const syncStatusJson = (await syncStatusRes.json()) as {
+    ok: boolean;
+    checkpoint: { lastOutboxId: string; recordCount: number } | null;
+  };
+  assert.equal(syncStatusJson.ok, true);
+  assert.equal(syncStatusJson.checkpoint?.lastOutboxId, 'obx-edge-1');
+  assert.equal(syncStatusJson.checkpoint?.recordCount, 12);
+
+  // 6. Non-API SPA routes delegate cleanly to env.ASSETS
+  const spaRes = await freshWorker.fetch(new Request('https://wendoro.workers.dev/dashboard'), mockEnv);
+  assert.equal(spaRes.status, 200);
+  assert.equal(assetFallbackCalls, 1);
+});
+
+
+
 

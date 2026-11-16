@@ -356,7 +356,7 @@ export class DexieOfflineRepository {
 
     const secondaryRows: CompanyCollectionRecord[] = [];
     for (const key of SECONDARY_COLLECTION_KEYS) {
-      const items = state[key] as Array<{ companyId: string } & Record<string, unknown>>;
+      const items = state[key] as unknown as Array<{ companyId: string } & Record<string, unknown>>;
       const byCompany = new Map<string, Array<{ companyId: string } & Record<string, unknown>>>();
       for (const item of items) {
         const list = byCompany.get(item.companyId) ?? [];

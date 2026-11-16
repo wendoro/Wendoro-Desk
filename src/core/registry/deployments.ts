@@ -1,4 +1,5 @@
 export type DeploymentTargetId =
+  | 'cloudflare'
   | 'desktop-electron'
   | 'android-app'
   | 'license-server';
@@ -32,8 +33,65 @@ export interface DeploymentTarget {
 }
 
 export const WENDORO_REPO_URL = 'https://github.com/wendoro/Wendoro-Desk';
+export const CLOUDFLARE_DEPLOY_URL = `https://deploy.workers.cloudflare.com/?url=${encodeURIComponent(WENDORO_REPO_URL)}`;
 
 export const WENDORO_DEPLOYMENT_TARGETS: DeploymentTarget[] = [
+  {
+    id: 'cloudflare',
+    name: 'Cloudflare Workers + Edge Assets (One-Click Ready)',
+    shortLabel: 'Cloudflare One-Click',
+    category: 'Edge Full-Stack · Cloudflare',
+    runtime: 'Cloudflare Workers (src/worker/index.ts) + Static Assets (dist/)',
+    scalingProfile: 'Zero-config global edge license & sync API + instant SPA CDN with optional LICENSE_KV binding',
+    configFiles: [
+      'wrangler.jsonc',
+      'src/worker/index.ts',
+      '.github/workflows/deploy-cloudflare.yml',
+      'vite.config.ts',
+    ],
+    summary:
+      'Deploy WENDORO ERP and its License Auth & Sync Edge API to Cloudflare in a single click or command. Static UI assets serve from Cloudflare’s global edge while /api/licenses/* and /api/erp/*/sync run in src/worker/index.ts with zero mandatory secrets.',
+    highlights: [
+      'Zero mandatory secrets or database bindings needed for one-click deploy',
+      'Edge Web Crypto HMAC-SHA256 license issuance, activation & Marketplace purchases',
+      'Run_worker_first routes /api/* to Worker while dist/ serves as fast SPA assets',
+      'Optional LICENSE_KV namespace & LICENSE_SIGNING_SECRET for global persistence',
+    ],
+    steps: [
+      {
+        title: '1. One-Click Build & Deploy via Wrangler CLI',
+        command: 'npm ci && npm run deploy:cloudflare',
+        note: 'Runs Vite production chunked build (dist/) and publishes Worker + Static Assets via wrangler.jsonc.',
+      },
+      {
+        title: '2. Local Cloudflare Workers Edge Preview',
+        command: 'npm run preview:cloudflare',
+        note: 'Tests src/worker/index.ts + dist/ locally inside Cloudflare Workerd before shipping.',
+      },
+      {
+        title: '3. Cloudflare Dashboard Git Integration (Auto-Deploy on Push)',
+        command:
+          'Build command:  npm run build\nDeploy command: npx wrangler deploy\nOutput dir:     dist',
+        note: 'Works with both Cloudflare Workers Git builds and .github/workflows/deploy-cloudflare.yml.',
+      },
+    ],
+    envVars: [
+      {
+        name: 'LICENSE_SIGNING_SECRET',
+        scope: 'server',
+        required: false,
+        description: 'Optional HMAC-SHA256 secret (set via `npx wrangler secret put LICENSE_SIGNING_SECRET`)',
+        example: 'openssl rand -hex 32',
+      },
+      {
+        name: 'LICENSE_KV',
+        scope: 'server',
+        required: false,
+        description: 'Optional Cloudflare KV namespace binding in wrangler.jsonc for multi-PoP persistence',
+        example: 'wrangler kv namespace create LICENSE_KV',
+      },
+    ],
+  },
   {
     id: 'desktop-electron',
     name: 'Native Desktop Software (Windows, macOS & Linux)',
@@ -177,6 +235,14 @@ export const WENDORO_DEPLOYMENT_TARGETS: DeploymentTarget[] = [
 ];
 
 export const OSS_GOVERNANCE_FILES = [
+  {
+    file: 'wrangler.jsonc',
+    purpose: 'One-click Cloudflare Workers + Static Assets edge deployment manifest',
+  },
+  {
+    file: 'src/worker/index.ts',
+    purpose: 'Zero-config Edge Worker for License Auth, Marketplace purchases & Dexie sync',
+  },
   {
     file: 'electron/main.cjs',
     purpose: 'Native Desktop software launcher for Windows, macOS, and Linux',

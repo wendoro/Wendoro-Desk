@@ -1,4 +1,4 @@
-import { SubscriptionTier } from '@/src/core/contracts/tenancy';
+import { SubscriptionTier, UserTypeId } from '@/src/core/contracts/tenancy';
 
 export type ClientPlatform = 'desktop' | 'android' | 'web';
 export type LicensedPlatform = 'desktop' | 'android' | 'both';
@@ -17,6 +17,8 @@ export interface LicenseActivationState {
   maxDevices: number;
   usedDevices: number;
   deviceId: string;
+  purchasedModules?: string[];
+  userType?: UserTypeId;
 }
 
 export interface ServerLicenseSummary {
@@ -32,6 +34,8 @@ export interface ServerLicenseSummary {
   status: 'active' | 'revoked' | 'expired';
   issuedAt: string;
   expiresAt: string | null;
+  purchasedModules?: string[];
+  userType?: UserTypeId;
 }
 
 const DEVICE_ID_STORAGE_KEY = 'wendoro.device.id.v1';
@@ -183,6 +187,8 @@ export async function activateLicenseKeyWithServer(params: {
     maxDevices: data.license.maxDevices,
     usedDevices: data.license.usedDevices,
     deviceId,
+    purchasedModules: data.license.purchasedModules ?? [],
+    userType: data.license.userType,
   };
 }
 
@@ -217,4 +223,33 @@ export async function verifyLicenseWithServer(params: {
     verifiedAt: data.verifiedAt,
     license: data.license,
   };
+}
+
+export async function purchaseModulesWithServer(params: {
+  serverUrl?: string;
+  licenseKey: string;
+  moduleSlugs: string[];
+  includeDependencies?: boolean;
+  userType?: UserTypeId;
+}): Promise<{
+  license: ServerLicenseSummary;
+  activationToken: string;
+  addedModules: string[];
+  serverUrl: string;
+}> {
+  const serverUrl = normalizeServerBase(params.serverUrl);
+  const deviceId = getOrCreateDeviceId();
+  const data = await postLicenseApi<{
+    ok: boolean;
+    license: ServerLicenseSummary;
+    activationToken: string;
+    addedModules: string[];
+  }>(serverUrl, '/api/licenses/purchase-modules', {
+    licenseKey: params.licenseKey.trim().toUpperCase(),
+    deviceId,
+    moduleSlugs: params.moduleSlugs,
+    includeDependencies: params.includeDependencies ?? true,
+    userType: params.userType,
+  });
+  return { ...data, serverUrl };
 }

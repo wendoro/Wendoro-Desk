@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   SlidersHorizontal,
+  Store,
   Truck,
   Users,
   Wallet,
@@ -63,22 +64,29 @@ export function Sidebar({
   mobileOpen,
   onCloseMobile,
 }: SidebarProps) {
-  const { activeCompany } = useTenant();
+  const { activeCompany, isModuleEntitled } = useTenant();
 
   const platformItems = [
     { id: 'bi_analytics', label: 'BI & Analytics', icon: BarChart3 },
     { id: 'workflow_studio', label: 'Workflow Studio', icon: Workflow },
+    { id: 'marketplace', label: 'Module Marketplace', icon: Store },
     { id: 'admin', label: 'Modules & Settings', icon: SlidersHorizontal },
     { id: 'setup', label: 'Setup & License', icon: CheckSquare },
     { id: 'deploy', label: 'Desktop & Android', icon: Rocket },
   ];
 
   const enabledBusinessModules = WENDORO_MODULES.filter(
-    (m) => m.layer === 'business' && activeCompany.enabledModules.includes(m.slug),
+    (m) =>
+      m.layer === 'business' &&
+      activeCompany.enabledModules.includes(m.slug) &&
+      isModuleEntitled(m.slug),
   );
 
   const enabledIndustryModules = WENDORO_MODULES.filter(
-    (m) => m.layer === 'industry' && activeCompany.enabledModules.includes(m.slug),
+    (m) =>
+      m.layer === 'industry' &&
+      activeCompany.enabledModules.includes(m.slug) &&
+      isModuleEntitled(m.slug),
   );
 
   const renderNavContent = (isMobileDrawer: boolean) => {

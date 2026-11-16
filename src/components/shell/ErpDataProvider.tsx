@@ -106,6 +106,7 @@ import {
   getDefaultDexieRepository,
   isNavigatorOnline,
 } from '@/src/core/engine/dexieStorage';
+import { useToast } from '@/src/components/ui/ToastProvider';
 import { useTenant } from './TenantProvider';
 
 export interface ErpCompanyScopedData {
@@ -412,6 +413,7 @@ const ErpDataContext = createContext<ErpDataContextValue | null>(null);
 export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const { principal, activeCompany, activeBranchId, licenseActivation, pushNotification } =
     useTenant();
+  const { pushToast } = useToast();
   const dexieRepo = useMemo(() => getDefaultDexieRepository(), []);
   const [state, setRawState] = useState<ErpDatabaseState>(() => {
     const loaded = defaultDevStorageAdapter.loadState();
@@ -434,6 +436,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const skipNextPersistRef = useRef<boolean>(true);
   const queueNextPersistRef = useRef<boolean>(false);
   const isOnlineRef = useRef<boolean>(isOnline);
+  const offlineNoticeShownRef = useRef<boolean>(false);
   const licenseServerRef = useRef<string | undefined>(licenseActivation?.serverUrl);
   const licenseKeyRef = useRef<string | null>(licenseActivation?.licenseKey ?? null);
 
@@ -495,11 +498,30 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
     if (result.error) {
       setLastSyncError(result.error);
       setSyncStatus(result.remainingCount > 0 ? 'error' : 'synced');
+      pushToast({
+        variant: 'error',
+        category: 'sync',
+        title: 'Background Sync Failed',
+        description: result.error,
+        actionLabel: 'Retry',
+        onAction: () => {
+          void runSyncFlush();
+        },
+      });
     } else {
       setLastSyncError(null);
       setSyncStatus(result.remainingCount > 0 ? 'pending' : 'synced');
+      if (result.syncedCount > 0) {
+        offlineNoticeShownRef.current = false;
+        pushToast({
+          variant: 'success',
+          category: 'sync',
+          title: 'Background Sync Complete',
+          description: `Synchronized ${result.syncedCount} queued IndexedDB batch(es) to local server.`,
+        });
+      }
     }
-  }, [dexieRepo, syncTransport]);
+  }, [dexieRepo, syncTransport, pushToast]);
 
   // Boot hydration from local Dexie.js IndexedDB (with one-time legacy localStorage migration)
   useEffect(() => {
@@ -538,6 +560,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handleOnline = () => {
       isOnlineRef.current = true;
+      offlineNoticeShownRef.current = false;
       setIsOnline(true);
       void runSyncFlush();
     };
@@ -545,6 +568,16 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       isOnlineRef.current = false;
       setIsOnline(false);
       setSyncStatus((prev) => (pendingCount > 0 || prev === 'pending' ? 'offline_queued' : prev));
+      if (!offlineNoticeShownRef.current) {
+        offlineNoticeShownRef.current = true;
+        pushToast({
+          variant: 'warning',
+          category: 'sync',
+          title: 'Offline Mode Active',
+          description:
+            'Changes are persisted locally in IndexedDB (Dexie.js) and will sync automatically when online.',
+        });
+      }
     };
 
     window.addEventListener('online', handleOnline);
@@ -553,7 +586,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [pendingCount, runSyncFlush]);
+  }, [pendingCount, runSyncFlush, pushToast]);
 
   // Periodic background flush while online if any queued items remain
   useEffect(() => {
@@ -568,7 +601,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setRawState((prev) => {
       const res = ensureCompanyAccounts(prev, companyId);
-      if (res.createdAccountsCount > 0) {
+      if (res.nextState.accounts.length > prev.accounts.length) {
         queueNextPersistRef.current = true;
       }
       return res.nextState;
@@ -609,6 +642,16 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
               void runSyncFlush();
             } else {
               setSyncStatus('offline_queued');
+              if (!offlineNoticeShownRef.current) {
+                offlineNoticeShownRef.current = true;
+                pushToast({
+                  variant: 'warning',
+                  category: 'sync',
+                  title: 'Saved Offline to IndexedDB',
+                  description:
+                    'Business records stored locally via Dexie.js and queued for sync until connection returns.',
+                });
+              }
             }
           } else {
             setSyncStatus('synced');
@@ -620,7 +663,7 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       window.clearTimeout(persistTimer);
     };
-  }, [state, companyId, activeCompany.companyCode, dexieRepo, runSyncFlush]);
+  }, [state, companyId, activeCompany.companyCode, dexieRepo, runSyncFlush, pushToast]);
 
   const scope: TransactionScope = useMemo(
     () => ({
@@ -797,6 +840,12 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       title: `${res.order.documentNumber} Created`,
       body: `${res.order.customerName} · ${res.order.status.toUpperCase()}`,
     });
+    pushToast({
+      variant: 'success',
+      category: 'alert',
+      title: `${res.order.documentNumber} Created`,
+      description: `${res.order.customerName} · ${res.order.status.toUpperCase()}`,
+    });
     return res.order;
   };
 
@@ -813,6 +862,31 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       title: `${res.order.documentNumber} Dispatched`,
       body: `Delivery note ${res.order.dispatchRef} posted stock deduction & COGS.`,
     });
+    pushToast({
+      variant: 'success',
+      category: 'alert',
+      title: `${res.order.documentNumber} Dispatched`,
+      description: `Delivery note ${res.order.dispatchRef} posted stock deduction & COGS.`,
+    });
+
+    const dispatchedIds = new Set(res.order.lines.map((l) => l.itemId).filter(Boolean));
+    const lowStockHit = res.nextState.catalogue.find(
+      (item) =>
+        item.companyId === companyId &&
+        dispatchedIds.has(item.id) &&
+        item.trackStock &&
+        item.stockOnHand - item.reservedQty <= item.reorderLevel,
+    );
+    if (lowStockHit) {
+      const available = lowStockHit.stockOnHand - lowStockHit.reservedQty;
+      pushToast({
+        variant: 'warning',
+        category: 'alert',
+        title: `Low Stock Alert: ${lowStockHit.sku}`,
+        description: `${lowStockHit.name} has ${available} ${lowStockHit.unit} available (reorder threshold: ${lowStockHit.reorderLevel}).`,
+      });
+    }
+
     return res.order;
   };
 
@@ -829,6 +903,12 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       category: 'governance',
       title: `${res.creditNote.creditNumber} Issued`,
       body: `Credit note issued against ${res.creditNote.invoiceNumber}`,
+    });
+    pushToast({
+      variant: 'info',
+      category: 'alert',
+      title: `${res.creditNote.creditNumber} Issued`,
+      description: `Credit note issued against ${res.creditNote.invoiceNumber}.`,
     });
     return res.creditNote;
   };
@@ -1013,6 +1093,15 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
   const adjustStock: ErpDataContextValue['adjustStock'] = (input) => {
     const res = txAdjustStock(state, scope, input);
     setState(res.nextState);
+    if (res.item.trackStock && res.item.stockOnHand - res.item.reservedQty <= res.item.reorderLevel) {
+      const available = res.item.stockOnHand - res.item.reservedQty;
+      pushToast({
+        variant: 'warning',
+        category: 'alert',
+        title: `Low Stock Alert: ${res.item.sku}`,
+        description: `${res.item.name} is at ${available} ${res.item.unit} available (reorder level: ${res.item.reorderLevel}).`,
+      });
+    }
     return res.item;
   };
 
@@ -1183,6 +1272,12 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       title: `${res.workOrder.woNumber} Completed`,
       body: `Produced ${res.workOrder.targetQty} x ${res.workOrder.finishedSku} and consumed BOM components.`,
     });
+    pushToast({
+      variant: 'success',
+      category: 'alert',
+      title: `${res.workOrder.woNumber} Completed`,
+      description: `Produced ${res.workOrder.targetQty} x ${res.workOrder.finishedSku}.`,
+    });
     return res.workOrder;
   };
 
@@ -1268,6 +1363,12 @@ export function ErpDataProvider({ children }: { children: React.ReactNode }) {
       category: 'governance',
       title: `Payroll Posted (${res.payrollRun.periodKey})`,
       body: `Posted balanced payroll journal for ${res.payrollRun.employeeCount} active employees.`,
+    });
+    pushToast({
+      variant: 'success',
+      category: 'alert',
+      title: `Payroll Posted (${res.payrollRun.periodKey})`,
+      description: `Balanced journal posted for ${res.payrollRun.employeeCount} active employee(s).`,
     });
     return res.payrollRun;
   };

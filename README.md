@@ -69,10 +69,12 @@ All entitlement quotas (users, companies, branches, storage, AI tokens, API call
 
 ## Deploy on Cloudflare
 
-### Option 1: One-Click Deploy (No Keys Required)
-Click the **Deploy to Cloudflare** button at the top of this README. Cloudflare will clone [`https://github.com/wendoro/Wendoro-Desk`](https://github.com/wendoro/Wendoro-Desk), run `npm ci`, `npm run build`, and publish `dist/` using [`wrangler.jsonc`](./wrangler.jsonc) — **zero API keys or database secrets are required to deploy**.
+### Option 1: One-Click Deploy (Full-Stack Edge Worker + UI, Zero Keys Required)
+Click the **Deploy to Cloudflare** button at the top of this README. Cloudflare will clone [`https://github.com/wendoro/Wendoro-Desk`](https://github.com/wendoro/Wendoro-Desk), run `npm ci`, `npm run build`, and publish both:
+- **Static SPA Assets** (`./dist`) via Cloudflare's global asset CDN
+- **Edge License & Sync Worker** (`src/worker/index.ts`) handling `/api/health`, `/api/setup/status`, `/api/licenses/*`, and `/api/erp/:companyId/sync*` with Web Crypto HMAC-SHA256 — **zero API keys, secrets, or bindings are required for initial deploy**.
 
-> **Add keys only when needed:** Once deployed, you can add your own `GEMINI_API_KEY`, `DATABASE_URL`, `BETTER_AUTH_SECRET`, or `VITE_FIREBASE_*` values anytime under **Cloudflare Dashboard -> Workers & Pages -> Settings -> Variables and Secrets** (or `npx wrangler secret put <KEY>`).
+> **Optional persistence & secrets:** For multi-PoP KV persistence across deployments, create a KV namespace (`npx wrangler kv namespace create LICENSE_KV`), bind `"LICENSE_KV"` in [`wrangler.jsonc`](./wrangler.jsonc), and optionally set `npx wrangler secret put LICENSE_SIGNING_SECRET`.
 
 ### Option 2: Automated Deployment (Every Push to `main`)
 
@@ -80,15 +82,15 @@ Click the **Deploy to Cloudflare** button at the top of this README. Cloudflare 
 1. In Cloudflare Dashboard, go to **Workers & Pages -> Create -> Import a repository**.
 2. Connect your GitHub repository (`Wendoro-Desk` / `wendoro-desk`).
 3. Set **Build command** to `npm run build` and **Deploy command** to `npx wrangler deploy`.
-4. Every push to `main` will automatically build and deploy.
+4. Every push to `main` will automatically build and deploy both the frontend and the License Auth Edge Worker.
 
 **Method B — GitHub Actions CI/CD (`.github/workflows/deploy-cloudflare.yml`):**
 1. Add two repository secrets in GitHub (**Settings -> Secrets and variables -> Actions**):
    - `CLOUDFLARE_API_TOKEN` (Cloudflare API Token with *Edit Cloudflare Workers* permissions)
    - `CLOUDFLARE_ACCOUNT_ID` (Your Cloudflare Account ID)
-2. Push to `main` (or trigger **Run workflow** manually) to run `npm ci`, `npm run lint`, `npm run build`, and `wrangler deploy`.
+2. Push to `main` (or trigger **Run workflow** manually) to run `npm ci`, `npm run lint`, `npm run build`, `wrangler deploy --dry-run`, and `wrangler deploy`.
 
-### Option 3: CLI Deploy via Wrangler
+### Option 3: Single-Command CLI Deploy via Wrangler
 ```bash
 # 1. Clone the repository
 git clone https://github.com/wendoro/Wendoro-Desk.git
@@ -97,16 +99,18 @@ cd Wendoro-Desk
 # 2. Install dependencies
 npm ci
 
-# 3. Build and deploy to Cloudflare Workers & Static Assets
+# 3. Preview locally inside Cloudflare Workerd (optional)
+npm run preview:cloudflare
+
+# 4. Build and deploy to Cloudflare Workers & Static Assets
 npm run deploy:cloudflare
 ```
 
 ### Optional Production Bindings (`wrangler.jsonc`)
-When enabling Phase 1+ persistent PostgreSQL & R2 storage on Cloudflare:
-1. Create a Neon PostgreSQL database and run `src/db/migrations/0000_core_foundation_rls.sql`.
-2. Create a Cloudflare Hyperdrive config pointing to Neon and uncomment the `hyperdrive` binding in `wrangler.jsonc`.
-3. Create an R2 bucket (`wendoro-documents`) and KV namespace (`CONFIG_KV`) if using document storage and edge caching.
-4. Set server-side secrets via Wrangler (`npx wrangler secret put GEMINI_API_KEY` and `npx wrangler secret put BETTER_AUTH_SECRET`).
+When scaling persistent storage on Cloudflare:
+1. Create a KV namespace (`npx wrangler kv namespace create LICENSE_KV`) and uncomment `kv_namespaces` in `wrangler.jsonc` for persistent edge license & sync state.
+2. Create an R2 bucket (`wendoro-documents`) and Hyperdrive PostgreSQL config if enabling document storage and Neon PostgreSQL persistence.
+3. Set server-side secrets via Wrangler (`npx wrangler secret put LICENSE_SIGNING_SECRET` and optional `npx wrangler secret put GEMINI_API_KEY`).
 
 ---
 

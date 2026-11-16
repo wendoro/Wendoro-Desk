@@ -128,9 +128,32 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidPurchasedModulesList(mods) {
+      return mods is list
+        && mods.size() <= 32
+        && mods.hasOnly([
+          'catalogue',
+          'crm',
+          'sales',
+          'purchase',
+          'inventory',
+          'accounting',
+          'hrms',
+          'projects',
+          'marketing',
+          'support',
+          'documents',
+          'industry_retail',
+          'industry_manufacturing',
+          'industry_electronics',
+          'industry_realestate',
+          'industry_services'
+        ]);
+    }
+
     function isValidLicenseRegistration(data, licenseKey) {
       return data.keys().hasAll(['licenseKey', 'ownerUid', 'organizationName', 'planTier', 'platform', 'status', 'maxDevices', 'signature', 'expiresAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['licenseKey', 'ownerUid', 'organizationName', 'planTier', 'platform', 'status', 'maxDevices', 'signature', 'expiresAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['licenseKey', 'ownerUid', 'organizationName', 'planTier', 'platform', 'status', 'maxDevices', 'signature', 'expiresAt', 'purchasedModules', 'createdAt', 'updatedAt'])
         && data.licenseKey is string && data.licenseKey.size() >= 12 && data.licenseKey.size() <= 64
         && data.licenseKey.matches('^WND-[A-Z]{4}-[A-Z0-9]{8}-[A-Z0-9]{8}$')
         && data.licenseKey == licenseKey
@@ -147,6 +170,7 @@ service cloud.firestore {
         && data.signature is string && data.signature.size() >= 8 && data.signature.size() <= 128
         && data.signature.matches('^[A-Z0-9]+$')
         && data.expiresAt is string && data.expiresAt.size() >= 4 && data.expiresAt.size() <= 40
+        && (!('purchasedModules' in data) || isValidPurchasedModulesList(data.purchasedModules))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -347,6 +371,7 @@ service cloud.firestore {
         && incoming().ownerUid == request.auth.uid
         && incoming().status == 'active'
         && (isAdmin() || (incoming().planTier == 'free' && incoming().maxDevices <= 3))
+        && (!('purchasedModules' in incoming()) || isAdmin() || incoming().purchasedModules.size() == 0)
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
 
@@ -358,14 +383,15 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['organizationName', 'planTier', 'platform', 'status', 'maxDevices', 'expiresAt', 'updatedAt']))
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['organizationName', 'planTier', 'platform', 'status', 'maxDevices', 'expiresAt', 'purchasedModules', 'updatedAt']))
           || (
             existing().ownerUid == request.auth.uid
             && existing().status == 'active'
             && incoming().planTier == existing().planTier
             && incoming().maxDevices == existing().maxDevices
             && incoming().status == existing().status
-            && incoming().diff(existing()).affectedKeys().hasOnly(['organizationName', 'updatedAt'])
+            && (!('purchasedModules' in existing()) || ('purchasedModules' in incoming() && incoming().purchasedModules.hasAll(existing().purchasedModules)))
+            && incoming().diff(existing()).affectedKeys().hasOnly(['organizationName', 'purchasedModules', 'updatedAt'])
           )
         );
 

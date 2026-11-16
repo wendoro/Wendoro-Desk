@@ -195,6 +195,32 @@ app.post('/api/licenses/verify', (req, res) => {
   res.status(result.valid ? 200 : 404).json(result);
 });
 
+app.post('/api/licenses/purchase-modules', (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const moduleSlugs = Array.isArray(body.moduleSlugs)
+      ? body.moduleSlugs.map((item) => String(item))
+      : [];
+    const result = licenseService.purchaseModulesForLicense({
+      licenseKey: String(body.licenseKey ?? ''),
+      moduleSlugs,
+      includeDependencies: body.includeDependencies !== false,
+      deviceId: body.deviceId ? String(body.deviceId) : undefined,
+      userType: body.userType ? (String(body.userType) as never) : undefined,
+    });
+    res.status(200).json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof LicenseServerError) {
+      res.status(err.statusCode).json({ error: err.code, message: err.message });
+      return;
+    }
+    res.status(500).json({
+      error: 'MARKETPLACE_PURCHASE_FAILED',
+      message: 'Unable to record Marketplace module purchase.',
+    });
+  }
+});
+
 // Resolve authenticated session principal via Better Auth session validation
 async function resolveSessionPrincipal(req: express.Request): Promise<SessionPrincipal | null> {
   const auth = getBetterAuth();

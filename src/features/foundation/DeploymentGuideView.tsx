@@ -3,6 +3,7 @@ import {
   Activity,
   Check,
   CheckCircle2,
+  Cloud,
   Copy,
   ExternalLink,
   FileCode2,
@@ -21,6 +22,7 @@ import { Surface } from '@/src/components/ui/Surface';
 import { useTenant } from '@/src/components/shell/TenantProvider';
 import { verifyLicenseWithServer } from '@/src/core/engine/licenseClient';
 import {
+  CLOUDFLARE_DEPLOY_URL,
   DeploymentTargetId,
   OSS_GOVERNANCE_FILES,
   WENDORO_DEPLOYMENT_TARGETS,
@@ -29,6 +31,7 @@ import {
 import { cn } from '@/src/lib/utils';
 
 const TARGET_ICONS: Record<DeploymentTargetId, React.ComponentType<{ className?: string }>> = {
+  cloudflare: Cloud,
   'desktop-electron': Monitor,
   'android-app': Smartphone,
   'license-server': Server,
@@ -37,6 +40,7 @@ const TARGET_ICONS: Record<DeploymentTargetId, React.ComponentType<{ className?:
 interface HealthProbeResult {
   checkedAt: string;
   message: string;
+  runtime?: string;
   registeredAccounts?: number;
   issuedLicenses?: number;
   activeActivations?: number;
@@ -48,7 +52,7 @@ export function DeploymentGuideView({
   onNavigate: (routeId: string) => void;
 }) {
   const { licenseActivation } = useTenant();
-  const [selectedId, setSelectedId] = useState<DeploymentTargetId>('desktop-electron');
+  const [selectedId, setSelectedId] = useState<DeploymentTargetId>('cloudflare');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [probeLoading, setProbeLoading] = useState(false);
   const [probeResult, setProbeResult] = useState<HealthProbeResult | null>(null);
@@ -82,6 +86,7 @@ export function DeploymentGuideView({
       if (res.ok && contentType.includes('application/json')) {
         const data = (await res.json()) as {
           status?: string;
+          runtime?: string;
           registeredAccounts?: number;
           issuedLicenses?: number;
           activeActivations?: number;
@@ -89,6 +94,7 @@ export function DeploymentGuideView({
         setProbeResult({
           checkedAt: new Date().toLocaleTimeString(),
           message: `License Server Online (${data.status ?? 'ok'})`,
+          runtime: data.runtime,
           registeredAccounts: data.registeredAccounts ?? 0,
           issuedLicenses: data.issuedLicenses ?? 0,
           activeActivations: data.activeActivations ?? 0,
@@ -141,18 +147,28 @@ export function DeploymentGuideView({
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold text-[#DC2626] dark:text-[#FACC15] mb-1">
-            Native Distribution · Desktop & Android + License Server
+            Distribution & Edge Deployment · Cloudflare, Desktop & Android
           </p>
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-[#1C1917] dark:text-stone-100 text-balance">
-            Desktop Software, Android APK & License Server
+            Cloudflare One-Click, Desktop Software & Android APK
           </h1>
           <p className="mt-1.5 text-sm text-[#57534E] dark:text-stone-400 max-w-2xl">
-            Build offline-first native WENDORO installers for Windows, macOS, Linux, and Android,
-            and run the lightweight License Auth Server to issue and verify customer keys.
+            Deploy WENDORO and its License Auth Edge Worker to Cloudflare in one click, or
+            package offline-first native installers for Windows, macOS, Linux, and Android.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <a
+            href={CLOUDFLARE_DEPLOY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold bg-[#F59E0B] hover:bg-[#D97706] text-[#1C1917] whitespace-nowrap transition-colors"
+          >
+            <Cloud className="h-3.5 w-3.5" />
+            Deploy to Cloudflare
+            <ExternalLink className="h-3 w-3" />
+          </a>
           <a
             href={WENDORO_REPO_URL}
             target="_blank"
@@ -165,13 +181,13 @@ export function DeploymentGuideView({
           </a>
           <Button variant="primary" size="sm" onClick={() => onNavigate('setup')}>
             <SlidersHorizontal className="h-3.5 w-3.5" />
-            Open Setup & License Wizard
+            Setup & License Wizard
           </Button>
         </div>
       </div>
 
-      {/* 3-Card Platform Selector */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* 4-Card Platform Selector */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {WENDORO_DEPLOYMENT_TARGETS.map((target) => {
           const Icon = TARGET_ICONS[target.id];
           const active = target.id === selectedTarget.id;
@@ -446,6 +462,7 @@ export function DeploymentGuideView({
                 </div>
                 <div className="font-medium text-[#1C1917] dark:text-stone-100">
                   {probeResult.message}
+                  {probeResult.runtime ? ` · ${probeResult.runtime}` : ''}
                 </div>
                 {probeResult.issuedLicenses !== undefined && (
                   <div className="text-[11px] text-[#57534E] dark:text-stone-400 pt-1 border-t border-stone-200 dark:border-[#32242A] flex justify-between">

@@ -23,7 +23,14 @@ import { useFirebase } from '@/src/components/shell/FirebaseProvider';
 import { useTenant } from '@/src/components/shell/TenantProvider';
 import { useTheme } from '@/src/components/shell/ThemeProvider';
 import { WENDORO_LICENSE_PLANS } from '@/src/core/contracts/licensing';
-import { SubscriptionTier } from '@/src/core/contracts/tenancy';
+import {
+  USER_TYPE_PROFILES,
+  getEntitledModulesForLicense,
+  getMarketplaceEntry,
+  getUserTypeProfile,
+  isModulePurchasedForLicense,
+} from '@/src/core/contracts/marketplace';
+import { SubscriptionTier, UserTypeId } from '@/src/core/contracts/tenancy';
 import {
   LicenseActivationState,
   LicensedPlatform,
@@ -61,37 +68,6 @@ const REGION_PRESETS: RegionPreset[] = [
   { id: 'SG', label: 'Singapore (SGD)', countryCode: 'SG', currency: 'SGD', timezone: 'Asia/Singapore', defaultCity: 'Singapore' },
 ];
 
-const BUSINESS_PRESETS = [
-  {
-    id: 'commerce',
-    title: 'Retail, POS & Distribution',
-    industry: 'Retail & Distribution',
-    description: 'Catalogue, CRM, Sales, Purchase, Inventory, Accounting & Retail POS.',
-    modules: ['catalogue', 'crm', 'sales', 'purchase', 'inventory', 'accounting', 'industry_retail'],
-  },
-  {
-    id: 'services',
-    title: 'Services & Agency',
-    industry: 'Professional Services',
-    description: 'CRM, Projects, Accounting, HRMS, Documents & Client Retainers.',
-    modules: ['crm', 'projects', 'accounting', 'hrms', 'documents', 'industry_services'],
-  },
-  {
-    id: 'manufacturing',
-    title: 'Manufacturing & Hardware',
-    industry: 'Manufacturing & Hardware',
-    description: 'Catalogue, Purchase, Inventory, Accounting, BOM Manufacturing & Electronics RMA.',
-    modules: ['catalogue', 'purchase', 'inventory', 'accounting', 'industry_manufacturing', 'industry_electronics'],
-  },
-  {
-    id: 'full',
-    title: 'Full ERP Suite',
-    industry: 'Multi-Operations Enterprise',
-    description: 'All business apps enabled across Finance, Supply Chain, CRM, HRMS & Support.',
-    modules: ['catalogue', 'crm', 'sales', 'purchase', 'inventory', 'accounting', 'hrms', 'projects', 'support', 'documents', 'marketing'],
-  },
-];
-
 const WIZARD_STEPS = [
   { num: 1, title: 'Local Company & Apps', icon: Building2 },
   { num: 2, title: 'License & Activation', icon: KeyRound },
@@ -124,9 +100,25 @@ export function SetupWizard({
   );
   const [companyCode, setCompanyCode] = useState<string>('');
   const [branchCity, setBranchCity] = useState<string>('Bengaluru');
-  const [selectedPreset, setSelectedPreset] = useState<string>('commerce');
-  const [industryClassification, setIndustryClassification] = useState<string>('Retail & Distribution');
-  const [enabledModules, setEnabledModules] = useState<string[]>(BUSINESS_PRESETS[0].modules);
+  const [selectedUserType, setSelectedUserType] = useState<UserTypeId>(
+    licenseActivation?.userType ?? 'retail_pos',
+  );
+  const [industryClassification, setIndustryClassification] = useState<string>(
+    getUserTypeProfile(licenseActivation?.userType ?? 'retail_pos').industryClassification,
+  );
+  const initialEntitled = useMemo(
+    () =>
+      getEntitledModulesForLicense(
+        licenseActivation?.planTier ?? 'free',
+        licenseActivation?.purchasedModules,
+      ),
+    [licenseActivation?.planTier, licenseActivation?.purchasedModules],
+  );
+  const [enabledModules, setEnabledModules] = useState<string[]>(() =>
+    getUserTypeProfile(licenseActivation?.userType ?? 'retail_pos').recommendedModules.filter(
+      (slug) => initialEntitled.includes(slug),
+    ),
+  );
   const [showCustomModules, setShowCustomModules] = useState(false);
 
   // Step 2: Native License Registration & Local Device Binding
@@ -202,16 +194,25 @@ export function SetupWizard({
     setCurrencyDisplay(preset.currency === 'INR' ? 'INR' : 'USD');
   };
 
-  const handlePresetSelect = (presetId: string) => {
-    const preset = BUSINESS_PRESETS.find((p) => p.id === presetId);
-    if (!preset) return;
-    setSelectedPreset(presetId);
-    setIndustryClassification(preset.industry);
-    setEnabledModules(preset.modules);
+  const activeEffectiveTier = activatedState?.planTier ?? selectedTier;
+  const activePurchasedList = activatedState?.purchasedModules ?? [];
+
+  const handleUserTypeSelect = (userTypeId: UserTypeId) => {
+    const profile = getUserTypeProfile(userTypeId);
+    const entitledSet = new Set(
+      getEntitledModulesForLicense(activeEffectiveTier, activePurchasedList),
+    );
+    setSelectedUserType(userTypeId);
+    setIndustryClassification(profile.industryClassification);
+    setEnabledModules(
+      profile.recommendedModules.filter((slug) => entitledSet.has(slug)),
+    );
   };
 
   const toggleModule = (slug: string) => {
-    setSelectedPreset('custom');
+    if (!isModulePurchasedForLicense(slug, activeEffectiveTier, activePurchasedList)) {
+      return;
+    }
     setEnabledModules((prev) =>
       prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug],
     );
@@ -372,6 +373,7 @@ export function SetupWizard({
         legalName: cleanName,
         companyCode: cleanCode,
         industryClassification,
+        userType: selectedUserType,
         countryCode: region.countryCode,
         baseCurrency: region.currency,
         timezone: region.timezone,
@@ -598,27 +600,27 @@ export function SetupWizard({
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-[#1C1917] dark:text-stone-200">
-                  Select Native App Bundle ({enabledModules.length} modules)
+                  Select Your User Type &amp; Licensed Apps ({enabledModules.length} enabled)
                 </span>
                 <button
                   type="button"
                   onClick={() => setShowCustomModules((v) => !v)}
                   className="text-xs font-medium text-[#DC2626] dark:text-[#FACC15] hover:underline cursor-pointer"
                 >
-                  {showCustomModules ? 'Hide individual apps' : 'Customize individual apps'}
+                  {showCustomModules ? 'Hide module catalog' : 'Inspect included vs Marketplace apps'}
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {BUSINESS_PRESETS.map((preset) => {
-                  const active = selectedPreset === preset.id;
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {USER_TYPE_PROFILES.map((profile) => {
+                  const active = selectedUserType === profile.id;
                   return (
                     <button
-                      key={preset.id}
+                      key={profile.id}
                       type="button"
-                      onClick={() => handlePresetSelect(preset.id)}
+                      onClick={() => handleUserTypeSelect(profile.id)}
                       className={`p-3.5 rounded-xl border text-left transition-colors cursor-pointer ${
                         active
                           ? 'border-[#DC2626] bg-[#DC2626]/5 dark:bg-[#DC2626]/15 ring-1 ring-[#DC2626]/30'
@@ -627,12 +629,12 @@ export function SetupWizard({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-semibold text-[#1C1917] dark:text-stone-100">
-                          {preset.title}
+                          {profile.title}
                         </span>
                         {active && <CheckCircle2 className="h-4 w-4 text-[#DC2626] dark:text-[#FACC15] shrink-0" />}
                       </div>
-                      <p className="mt-1 text-[11px] text-[#57534E] dark:text-stone-400 leading-relaxed">
-                        {preset.description}
+                      <p className="mt-1 text-[11px] text-[#57534E] dark:text-stone-400 leading-relaxed line-clamp-2">
+                        {profile.description}
                       </p>
                     </button>
                   );
@@ -640,31 +642,52 @@ export function SetupWizard({
               </div>
 
               {showCustomModules && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2">
-                  {selectableModules.map((mod) => {
-                    const checked = enabledModules.includes(mod.slug);
-                    return (
-                      <button
-                        key={mod.slug}
-                        type="button"
-                        onClick={() => toggleModule(mod.slug)}
-                        className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-left text-xs transition-colors cursor-pointer ${
-                          checked
-                            ? 'border-[#F59E0B] bg-amber-50 dark:bg-amber-950/30 text-[#1C1917] dark:text-stone-100'
-                            : 'border-stone-200 dark:border-[#32242A] bg-white dark:bg-[#141013] text-[#57534E] dark:text-stone-400'
-                        }`}
-                      >
-                        <span className="truncate font-medium">{mod.name}</span>
-                        <span
-                          className={`h-4 w-4 rounded flex items-center justify-center shrink-0 ${
-                            checked ? 'bg-[#DC2626] text-white' : 'border border-stone-300 dark:border-[#32242A]'
+                <div className="space-y-2 pt-2">
+                  <p className="text-[11px] text-[#57534E] dark:text-stone-400">
+                    Modules included in your license can be toggled immediately. Additional modules can be purchased anytime from the <strong>Module Marketplace</strong> after launch.
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {selectableModules.map((mod) => {
+                      const entitled = isModulePurchasedForLicense(
+                        mod.slug,
+                        activeEffectiveTier,
+                        activePurchasedList,
+                      );
+                      const checked = entitled && enabledModules.includes(mod.slug);
+                      const listing = getMarketplaceEntry(mod.slug)?.listing;
+                      return (
+                        <button
+                          key={mod.slug}
+                          type="button"
+                          disabled={!entitled}
+                          onClick={() => toggleModule(mod.slug)}
+                          className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-left text-xs transition-colors ${
+                            !entitled
+                              ? 'border-stone-200 dark:border-[#32242A] bg-stone-50 dark:bg-[#141013]/60 text-[#78716C] dark:text-stone-500 cursor-not-allowed'
+                              : checked
+                                ? 'border-[#F59E0B] bg-amber-50 dark:bg-amber-950/30 text-[#1C1917] dark:text-stone-100 cursor-pointer'
+                                : 'border-stone-200 dark:border-[#32242A] bg-white dark:bg-[#141013] text-[#57534E] dark:text-stone-400 cursor-pointer'
                           }`}
                         >
-                          {checked && <Check className="h-3 w-3" />}
-                        </span>
-                      </button>
-                    );
-                  })}
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{mod.name}</div>
+                            {!entitled && listing && (
+                              <div className="text-[10px] font-mono text-[#B45309] dark:text-[#FACC15]">
+                                Marketplace Add-On
+                              </div>
+                            )}
+                          </div>
+                          <span
+                            className={`h-4 w-4 rounded flex items-center justify-center shrink-0 ${
+                              checked ? 'bg-[#DC2626] text-white' : 'border border-stone-300 dark:border-[#32242A]'
+                            }`}
+                          >
+                            {checked && <Check className="h-3 w-3" />}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>

@@ -17,6 +17,7 @@ import {
   Receipt,
   Settings,
   ShoppingBag,
+  Store,
   TrendingUp,
   Truck,
   Users,
@@ -38,6 +39,7 @@ import {
 } from '@/src/components/charts/RechartsDashboardWidgets';
 import { useErpData } from '@/src/components/shell/ErpDataProvider';
 import { useTenant } from '@/src/components/shell/TenantProvider';
+import { useToast } from '@/src/components/ui/ToastProvider';
 import {
   buildBalanceCompositionSlices,
   buildInventoryTurnoverSeries,
@@ -72,8 +74,9 @@ export function DashboardOverview({
 }: {
   onNavigate: (routeId: string) => void;
 }) {
-  const { activeCompany, activeBranchId } = useTenant();
+  const { activeCompany, activeBranchId, isModuleEntitled } = useTenant();
   const { data, metrics, trialBalance } = useErpData();
+  const { pushToast } = useToast();
   const [granularity, setGranularity] = useState<'month' | 'day'>('month');
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportNotice, setExportNotice] = useState<{ label: string; detail: string } | null>(null);
@@ -107,7 +110,10 @@ export function DashboardOverview({
   }, [exportNotice]);
 
   const activeModules = WENDORO_MODULES.filter(
-    (m) => m.layer !== 'core' && activeCompany.enabledModules.includes(m.slug),
+    (m) =>
+      m.layer !== 'core' &&
+      activeCompany.enabledModules.includes(m.slug) &&
+      isModuleEntitled(m.slug),
   );
 
   const cashFlowSeries = useMemo(
@@ -239,14 +245,29 @@ export function DashboardOverview({
     setExportMenuOpen(false);
     const result = exportDashboardReport(buildCurrentSnapshot(), format);
     const sizeKb = Math.max(1, Math.round(result.byteSize / 1024));
+    const title = `${format.toUpperCase()} Report Exported`;
+    const detail = `${result.filename} (${sizeKb} KB) generated offline`;
     setExportNotice({
-      label: `${format.toUpperCase()} Report Saved`,
-      detail: `${result.filename} (${sizeKb} KB) generated offline`,
+      label: title,
+      detail,
+    });
+    pushToast({
+      variant: 'success',
+      category: 'export',
+      title,
+      description: detail,
     });
   };
 
   const handlePrintSnapshot = () => {
     setExportMenuOpen(false);
+    pushToast({
+      variant: 'info',
+      category: 'export',
+      title: 'Dashboard Print Snapshot Ready',
+      description: `Formatted ${activeCompany.companyName} metrics for local printing.`,
+      durationMs: 3000,
+    });
     window.print();
   };
 
@@ -377,6 +398,10 @@ export function DashboardOverview({
             )}
           </div>
 
+          <Button variant="outline" size="sm" onClick={() => onNavigate('marketplace')}>
+            <Store className="h-3.5 w-3.5 text-[#DC2626]" />
+            Marketplace
+          </Button>
           <Button variant="outline" size="sm" onClick={() => onNavigate('admin')}>
             <Settings className="h-3.5 w-3.5 text-[#64748B]" />
             Modules
@@ -738,13 +763,22 @@ export function DashboardOverview({
           <h2 className="text-base font-semibold text-[#1C1917] dark:text-slate-100">
             Active Applications ({activeModules.length})
           </h2>
-          <button
-            type="button"
-            onClick={() => onNavigate('admin')}
-            className="text-xs font-medium text-[#DC2626] hover:underline cursor-pointer whitespace-nowrap"
-          >
-            Enable or disable modules
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => onNavigate('marketplace')}
+              className="text-xs font-medium text-[#D97706] dark:text-[#FACC15] hover:underline cursor-pointer whitespace-nowrap"
+            >
+              Add from Marketplace
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('admin')}
+              className="text-xs font-medium text-[#DC2626] hover:underline cursor-pointer whitespace-nowrap"
+            >
+              Manage installed
+            </button>
+          </div>
         </div>
 
         {activeModules.length === 0 ? (

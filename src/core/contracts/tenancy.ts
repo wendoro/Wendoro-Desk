@@ -31,6 +31,16 @@ export const BranchSummarySchema = z.object({
 });
 export type BranchSummary = z.infer<typeof BranchSummarySchema>;
 
+export const UserTypeSchema = z.enum([
+  'retail_pos',
+  'wholesale_dist',
+  'manufacturer',
+  'services_agency',
+  'real_estate_ops',
+  'enterprise_all',
+]);
+export type UserTypeId = z.infer<typeof UserTypeSchema>;
+
 export const CompanyMembershipSchema = z.object({
   membershipId: UuidSchema,
   tenantId: UuidSchema,
@@ -39,6 +49,7 @@ export const CompanyMembershipSchema = z.object({
   companyName: z.string().min(1),
   legalName: z.string().min(1),
   industryClassification: z.string().min(1),
+  userType: UserTypeSchema.optional(),
   baseCurrency: z.string().length(3),
   countryCode: z.string().length(2),
   timezone: z.string().min(1),

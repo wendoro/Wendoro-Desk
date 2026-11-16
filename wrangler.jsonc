@@ -1,22 +1,27 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "wendoro-erp",
+  "main": "src/worker/index.ts",
   "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
   },
   "observability": {
     "enabled": true
   }
-  // Configure bindings when provisioning Phase 1+ Cloudflare infrastructure:
+  // Optional bindings for persistent multi-PoP License & Sync storage across deployments:
+  // "kv_namespaces": [
+  //   { "binding": "LICENSE_KV", "id": "<YOUR_KV_NAMESPACE_ID>" }
+  // ],
   // "hyperdrive": [
   //   { "binding": "HYPERDRIVE", "id": "<YOUR_HYPERDRIVE_CONFIG_ID>" }
   // ],
   // "r2_buckets": [
   //   { "binding": "DOCUMENTS_BUCKET", "bucket_name": "wendoro-documents" }
-  // ],
-  // "kv_namespaces": [
-  //   { "binding": "CONFIG_KV", "id": "<YOUR_KV_NAMESPACE_ID>" }
   // ]
 }

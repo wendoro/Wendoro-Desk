@@ -1,12 +1,24 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import {
+  expandSelectionWithDependencies,
+  getEntitledModulesForLicense,
+  inferUserTypeFromIndustry,
+  isModulePurchasedForLicense,
+  normalizePurchasedModules,
+} from '@/src/core/contracts/marketplace';
+import {
   CompanyMembership,
   SessionPrincipal,
   SessionPrincipalSchema,
   SubscriptionTier,
+  UserTypeId,
   hasPermission,
 } from '@/src/core/contracts/tenancy';
-import { LicenseActivationState } from '@/src/core/engine/licenseClient';
+import {
+  LicenseActivationState,
+  purchaseModulesWithServer,
+} from '@/src/core/engine/licenseClient';
+import { purchaseModulesInFirebase } from '@/src/lib/firebaseLicense';
 
 export interface NotificationItem {
   id: string;
@@ -24,6 +36,7 @@ export interface SetupWizardInput {
   legalName: string;
   companyCode: string;
   industryClassification: string;
+  userType?: UserTypeId;
   countryCode: string;
   baseCurrency: string;
   timezone: string;
@@ -65,7 +78,8 @@ const INITIAL_PRINCIPAL: SessionPrincipal = SessionPrincipalSchema.parse({
       companyCode: 'ORG-01',
       companyName: 'My Organization',
       legalName: 'My Organization',
-      industryClassification: 'General Business',
+      industryClassification: 'Retail & Distribution',
+      userType: 'retail_pos',
       baseCurrency: 'INR',
       countryCode: 'IN',
       timezone: 'Asia/Kolkata',
@@ -78,12 +92,7 @@ const INITIAL_PRINCIPAL: SessionPrincipal = SessionPrincipalSchema.parse({
         'core_rbac',
         'catalogue',
         'crm',
-        'sales',
-        'purchase',
-        'inventory',
         'accounting',
-        'hrms',
-        'projects',
       ],
       defaultBranchId: '00000000-0000-4000-8000-000000000401',
       branches: [
@@ -134,17 +143,26 @@ function loadPersistedState(): PersistedSetupState {
 interface TenantContextValue {
   principal: SessionPrincipal;
   activeCompany: CompanyMembership;
+  activeUserType: UserTypeId;
   activeBranchId: string | null;
   setupCompleted: boolean;
   licenseKey?: string;
   licenseActivation?: LicenseActivationState;
   isLicenseVerified: boolean;
+  purchasedModules: string[];
+  entitledModules: string[];
+  isModuleEntitled: (moduleSlug: string) => boolean;
+  setCompanyUserType: (userType: UserTypeId) => void;
+  purchaseAndInstallModules: (
+    moduleSlugs: string[],
+    options?: { includeDependencies?: boolean; userType?: UserTypeId },
+  ) => Promise<{ addedModules: string[]; purchasedModules: string[] }>;
   setLicenseActivation: (activation: LicenseActivationState | undefined) => void;
   clearLicenseActivation: () => void;
   switchCompany: (companyId: string) => void;
   switchBranch: (branchId: string | null) => void;
   addBranchToActiveCompany: (branch: { code: string; name: string; city: string }) => void;
-  toggleCompanyModule: (moduleSlug: string) => void;
+  toggleCompanyModule: (moduleSlug: string) => boolean;
   completeSetupWizard: (input: SetupWizardInput) => CompanyMembership;
   skipSetupWizard: () => void;
   resetSetupWizard: () => void;
@@ -221,6 +239,44 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     );
   }, [principal]);
 
+  const purchasedModules = useMemo(
+    () => normalizePurchasedModules(licenseActivation?.purchasedModules),
+    [licenseActivation?.purchasedModules],
+  );
+
+  const entitledModules = useMemo(
+    () => getEntitledModulesForLicense(principal.subscriptionTier, purchasedModules),
+    [principal.subscriptionTier, purchasedModules],
+  );
+
+  const activeUserType: UserTypeId = useMemo(
+    () =>
+      activeCompany.userType ??
+      licenseActivation?.userType ??
+      inferUserTypeFromIndustry(activeCompany.industryClassification),
+    [activeCompany.userType, activeCompany.industryClassification, licenseActivation?.userType],
+  );
+
+  const isModuleEntitled = (moduleSlug: string): boolean =>
+    isModulePurchasedForLicense(moduleSlug, principal.subscriptionTier, purchasedModules);
+
+  const setCompanyUserType = (userType: UserTypeId) => {
+    const nextActivation = licenseActivation
+      ? { ...licenseActivation, userType }
+      : undefined;
+    setLicenseActivationState(nextActivation);
+    setPrincipal((prev) => {
+      const next: SessionPrincipal = {
+        ...prev,
+        memberships: prev.memberships.map((m) =>
+          m.companyId === prev.activeCompanyId ? { ...m, userType } : m,
+        ),
+      };
+      persist(next, setupCompleted, licenseKey, nextActivation);
+      return next;
+    });
+  };
+
   const switchCompany = (companyId: string) => {
     const target = principal.memberships.find((m) => m.companyId === companyId);
     if (!target) return;
@@ -271,8 +327,13 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const toggleCompanyModule = (moduleSlug: string) => {
-    if (moduleSlug === 'core_identity' || moduleSlug === 'core_rbac') return;
+  const toggleCompanyModule = (moduleSlug: string): boolean => {
+    if (moduleSlug === 'core_identity' || moduleSlug === 'core_rbac') return false;
+    const currentlyEnabled = activeCompany.enabledModules.includes(moduleSlug);
+    if (!currentlyEnabled && !isModuleEntitled(moduleSlug)) {
+      return false;
+    }
+
     setPrincipal((prev) => {
       const next = {
         ...prev,
@@ -290,6 +351,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       persist(next, setupCompleted, licenseKey, licenseActivation);
       return next;
     });
+    return true;
   };
 
   const pushNotification: TenantContextValue['pushNotification'] = (item) => {
@@ -307,15 +369,108 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     ]);
   };
 
+  const purchaseAndInstallModules: TenantContextValue['purchaseAndInstallModules'] = async (
+    moduleSlugs,
+    options,
+  ) => {
+    if (!licenseActivation?.licenseKey) {
+      throw new Error('Activate a license key before purchasing Marketplace modules.');
+    }
+
+    const includeDependencies = options?.includeDependencies !== false;
+    const targetUserType = options?.userType ?? activeUserType;
+
+    let updatedPurchased: string[] = purchasedModules;
+    let addedModules: string[] = [];
+    let updatedToken = licenseActivation.activationToken;
+
+    if (licenseActivation.serverUrl.startsWith('firebase://')) {
+      const fbRes = await purchaseModulesInFirebase({
+        licenseKey: licenseActivation.licenseKey,
+        moduleSlugs,
+        includeDependencies,
+      });
+      updatedPurchased = fbRes.purchasedModules;
+      addedModules = fbRes.addedModules;
+    } else {
+      const srvRes = await purchaseModulesWithServer({
+        serverUrl: licenseActivation.serverUrl,
+        licenseKey: licenseActivation.licenseKey,
+        moduleSlugs,
+        includeDependencies,
+        userType: targetUserType,
+      });
+      updatedPurchased = normalizePurchasedModules(srvRes.license.purchasedModules);
+      addedModules = srvRes.addedModules;
+      updatedToken = srvRes.activationToken;
+    }
+
+    const nextActivation: LicenseActivationState = {
+      ...licenseActivation,
+      purchasedModules: updatedPurchased,
+      activationToken: updatedToken,
+      userType: targetUserType,
+      verifiedAt: new Date().toISOString(),
+    };
+
+    const expansion = expandSelectionWithDependencies(moduleSlugs, []);
+    const toEnable = Array.from(
+      new Set([...moduleSlugs, ...addedModules, ...expansion.addedDependencies]),
+    );
+
+    setLicenseActivationState(nextActivation);
+    setPrincipal((prev) => {
+      const next: SessionPrincipal = {
+        ...prev,
+        memberships: prev.memberships.map((m) =>
+          m.companyId === prev.activeCompanyId
+            ? {
+                ...m,
+                userType: targetUserType,
+                enabledModules: Array.from(new Set([...m.enabledModules, ...toEnable])),
+              }
+            : m,
+        ),
+      };
+      persist(next, setupCompleted, licenseActivation.licenseKey, nextActivation);
+      return next;
+    });
+
+    pushNotification({
+      category: 'governance',
+      title: 'Marketplace Modules Added',
+      body:
+        addedModules.length > 0
+          ? `Purchased & installed ${addedModules.length} module(s) onto license ${licenseActivation.licenseKey}.`
+          : `Installed ${toEnable.length} module(s) on ${activeCompany.companyName}.`,
+    });
+
+    return {
+      addedModules,
+      purchasedModules: updatedPurchased,
+    };
+  };
+
   const completeSetupWizard = (input: SetupWizardInput): CompanyMembership => {
     const tenantId = createUuid();
     const companyId = createUuid();
     const branchId = createUuid();
     const membershipId = createUuid();
 
-    const dedupedModules = Array.from(
-      new Set(['core_identity', 'core_rbac', ...input.enabledModules]),
+    const entitledForTier = new Set(
+      getEntitledModulesForLicense(
+        input.subscriptionTier,
+        input.licenseActivation?.purchasedModules,
+      ),
     );
+    const filteredSelected = input.enabledModules.filter((slug) =>
+      entitledForTier.has(slug),
+    );
+    const dedupedModules = Array.from(
+      new Set(['core_identity', 'core_rbac', ...filteredSelected]),
+    );
+    const resolvedUserType =
+      input.userType ?? inferUserTypeFromIndustry(input.industryClassification);
 
     const newMembership: CompanyMembership = {
       membershipId,
@@ -325,6 +480,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       companyName: input.companyName.trim(),
       legalName: input.legalName.trim() || input.companyName.trim(),
       industryClassification: input.industryClassification,
+      userType: resolvedUserType,
       baseCurrency: input.baseCurrency.toUpperCase().slice(0, 3),
       countryCode: input.countryCode.toUpperCase().slice(0, 2),
       timezone: input.timezone,
@@ -361,11 +517,14 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
     const trimmedKey =
       input.licenseActivation?.licenseKey ?? (input.licenseKey?.trim() || undefined);
+    const nextActivation = input.licenseActivation
+      ? { ...input.licenseActivation, userType: resolvedUserType }
+      : undefined;
     setPrincipal(nextPrincipal);
     setSetupCompleted(true);
     setLicenseKey(trimmedKey);
-    setLicenseActivationState(input.licenseActivation);
-    persist(nextPrincipal, true, trimmedKey, input.licenseActivation);
+    setLicenseActivationState(nextActivation);
+    persist(nextPrincipal, true, trimmedKey, nextActivation);
 
     pushNotification({
       category: 'governance',
@@ -405,11 +564,17 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       value={{
         principal,
         activeCompany,
+        activeUserType,
         activeBranchId: principal.activeBranchId,
         setupCompleted,
         licenseKey,
         licenseActivation,
         isLicenseVerified,
+        purchasedModules,
+        entitledModules,
+        isModuleEntitled,
+        setCompanyUserType,
+        purchaseAndInstallModules,
         setLicenseActivation,
         clearLicenseActivation,
         switchCompany,

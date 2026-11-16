@@ -12,6 +12,12 @@ import {
 } from 'firebase/firestore';
 import { z } from 'zod';
 import { WENDORO_LICENSE_PLANS } from '@/src/core/contracts/licensing';
+import {
+  PURCHASABLE_MODULE_SLUGS,
+  expandSelectionWithDependencies,
+  getEntitledModulesForLicense,
+  normalizePurchasedModules,
+} from '@/src/core/contracts/marketplace';
 import { SubscriptionTier } from '@/src/core/contracts/tenancy';
 import {
   ClientPlatform,
@@ -74,6 +80,7 @@ export const LicenseRegistrationBlueprintSchema = z.object({
   maxDevices: z.number().int().min(1).max(2000),
   signature: z.string().min(8).max(128).regex(SIGNATURE_PATTERN),
   expiresAt: z.string().min(4).max(40),
+  purchasedModules: z.array(z.enum(PURCHASABLE_MODULE_SLUGS)).max(32).optional(),
 });
 
 export const LicenseDeviceBlueprintSchema = z.object({
@@ -391,6 +398,7 @@ export async function verifyAndActivateLicenseInFirebase(params: {
     maxDevices: licenseData.maxDevices,
     usedDevices: finalUsedDevices,
     deviceId,
+    purchasedModules: normalizePurchasedModules(licenseData.purchasedModules),
   };
 }
 
@@ -426,6 +434,7 @@ export async function registerLicenseInFirebase(params: {
     maxDevices,
     signature,
     expiresAt,
+    purchasedModules: [],
   });
 
   const deviceId = sanitizeFirestoreId(params.deviceId || getOrCreateDeviceId());
@@ -470,6 +479,7 @@ export async function registerLicenseInFirebase(params: {
     maxDevices,
     usedDevices: 1,
     deviceId,
+    purchasedModules: [],
   };
 }
 
@@ -514,6 +524,7 @@ export async function listUserLicensesInFirebase(): Promise<ServerLicenseSummary
         status: parsed.data.status,
         issuedAt: timestampToIso(raw.createdAt),
         expiresAt: parsed.data.expiresAt === 'never' ? null : parsed.data.expiresAt,
+        purchasedModules: normalizePurchasedModules(parsed.data.purchasedModules),
       });
     }
 
@@ -570,6 +581,7 @@ export async function reverifyActiveLicenseInFirebase(
         planName: resolvePlanName(parsed.planTier),
         maxDevices: parsed.maxDevices,
         expiresAt: parsed.expiresAt === 'never' ? null : parsed.expiresAt,
+        purchasedModules: normalizePurchasedModules(parsed.purchasedModules),
       },
     };
   } catch (err) {
@@ -586,4 +598,58 @@ export async function reverifyActiveLicenseInFirebase(
       reason: err instanceof Error ? err.message : 'Firebase license verification failed.',
     };
   }
+}
+
+export async function purchaseModulesInFirebase(params: {
+  licenseKey: string;
+  moduleSlugs: string[];
+  includeDependencies?: boolean;
+}): Promise<{ purchasedModules: string[]; addedModules: string[] }> {
+  const { firestore } = requireVerifiedFirebaseSession();
+  const key = normalizeLicenseKey(params.licenseKey);
+  const licensePath = `licenses/${key}`;
+  const licenseRef = doc(firestore, 'licenses', key);
+
+  let existingLicense: LicenseRegistrationDoc;
+  try {
+    const snap = await getDocFromServer(licenseRef);
+    if (!snap.exists()) {
+      throw new FirebaseLicenseError(
+        'LICENSE_NOT_FOUND',
+        `License key ${key} was not found in Firebase.`,
+      );
+    }
+    existingLicense = LicenseRegistrationBlueprintSchema.parse(snap.data());
+  } catch (err) {
+    if (err instanceof FirebaseLicenseError) throw err;
+    handleFirestoreError(err, OperationType.GET, licensePath);
+  }
+
+  const currentPurchased = normalizePurchasedModules(existingLicense.purchasedModules);
+  const currentEntitled = getEntitledModulesForLicense(
+    existingLicense.planTier,
+    currentPurchased,
+  );
+
+  const requested = params.includeDependencies === false
+    ? normalizePurchasedModules(params.moduleSlugs).filter(
+        (slug) => !currentEntitled.includes(slug),
+      )
+    : expandSelectionWithDependencies(params.moduleSlugs, currentEntitled).resolvedSlugs;
+
+  const nextPurchased = normalizePurchasedModules([...currentPurchased, ...requested]);
+
+  try {
+    await updateDoc(licenseRef, {
+      purchasedModules: nextPurchased,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, licensePath);
+  }
+
+  return {
+    purchasedModules: nextPurchased,
+    addedModules: requested,
+  };
 }
